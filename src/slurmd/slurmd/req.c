@@ -681,6 +681,7 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		int i;
 		time_t start_time = time(NULL);
 #endif
+        error("[%s:%d] _forkexec_slurmstepd:parent start", __FILE__, __LINE__);
 		/*
 		 * Parent sends initialization data to the slurmstepd
 		 * over the to_stepd pipe, and waits for the return code
@@ -691,6 +692,8 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		if (close(to_slurmd[1]) < 0)
 			error("Unable to close write to_slurmd in parent: %m");
 
+        error("[%s:%d] _forkexec_slurmstepd:parent close pipes", __FILE__, __LINE__);
+
 		if ((rc = _send_slurmstepd_init(to_stepd[1], type,
 						req, cli, self,
 						step_hset,
@@ -699,10 +702,14 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 			goto done;
 		}
 
+        error("[%s:%d] _forkexec_slurmstepd:parent _send_slurmstepd_init finished", __FILE__, __LINE__);
+
 		/* If running under valgrind/memcheck, this pipe doesn't work
 		 * correctly so just skip it. */
 #if (SLURMSTEPD_MEMCHECK == 0)
 		i = read(to_slurmd[0], &rc, sizeof(int));
+
+        error("[%s:%d] _forkexec_slurmstepd:parent read %i", __FILE__, __LINE__, i);
 		if (i < 0) {
 			error("%s: Can not read return code from slurmstepd "
 			      "got %d: %m", __func__, i);
@@ -724,13 +731,18 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 
 			cc = SLURM_SUCCESS;
 			cc = write(to_stepd[1], &cc, sizeof(int));
+            error("[%s:%d] _forkexec_slurmstepd:parent write %i", __FILE__, __LINE__, cc);
 			if (cc != sizeof(int)) {
 				error("%s: failed to send ack to stepd %d: %m",
 				      __func__, cc);
 			}
 		}
+
+
 #endif
 	done:
+        error("[%s:%d] _forkexec_slurmstepd:parent done", __FILE__, __LINE__);
+
 		if (_remove_starting_step(type, req))
 			error("Error cleaning up starting_step list");
 
@@ -741,6 +753,7 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 			error("close write to_stepd in parent: %m");
 		if (close(to_slurmd[0]) < 0)
 			error("close read to_slurmd in parent: %m");
+        error("[%s:%d] _forkexec_slurmstepd:parent exit", __FILE__, __LINE__);
 		return rc;
 	} else {
 #if (SLURMSTEPD_MEMCHECK == 1)
@@ -820,7 +833,12 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		int i;
 		int failed = 0;
 		/* inform slurmstepd about our config */
+
+        error("[%s:%d] _forkexec_slurmstepd:child start", __FILE__, __LINE__);
+
 		setenv("SLURM_CONF", conf->conffile, 1);
+
+        error("[%s:%d] _forkexec_slurmstepd:child setenv", __FILE__, __LINE__);
 
 		/*
 		 * Child forks and exits
@@ -829,6 +847,9 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 			error("_forkexec_slurmstepd: setsid: %m");
 			failed = 1;
 		}
+
+        error("[%s:%d] _forkexec_slurmstepd:child setsid", __FILE__, __LINE__);
+
 		if ((pid = fork()) < 0) {
 			error("_forkexec_slurmstepd: "
 			      "Unable to fork grandchild: %m");
@@ -836,6 +857,8 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		} else if (pid > 0) { /* child */
 			exit(0);
 		}
+
+        error("[%s:%d] _forkexec_slurmstepd:child forked", __FILE__, __LINE__);
 
 		/*
 		 * Just in case we (or someone we are linking to)
@@ -849,6 +872,9 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 			(void) fcntl(i, F_SETFD, FD_CLOEXEC);
 		}
 
+        error("[%s:%d] _forkexec_slurmstepd:child", __FILE__, __LINE__);
+
+
 		/*
 		 * Grandchild exec's the slurmstepd
 		 *
@@ -860,17 +886,29 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		    && (to_slurmd[1] != conf->lfd))
 			slurm_shutdown_msg_engine(conf->lfd);
 
+        error("[%s:%d] _forkexec_slurmstepd:child slurm_shutdown_msg_engine", __FILE__, __LINE__);
+
+
 		if (close(to_stepd[1]) < 0)
 			error("close write to_stepd in grandchild: %m");
 		if (close(to_slurmd[0]) < 0)
 			error("close read to_slurmd in parent: %m");
 
 		(void) close(STDIN_FILENO); /* ignore return */
+
+        error("[%s:%d] _forkexec_slurmstepd:child close pipes", __FILE__, __LINE__);
+
 		if (dup2(to_stepd[0], STDIN_FILENO) == -1) {
 			error("dup2 over STDIN_FILENO: %m");
 			exit(1);
 		}
+
+        error("[%s:%d] _forkexec_slurmstepd:child", __FILE__, __LINE__);
+
 		fd_set_close_on_exec(to_stepd[0]);
+
+        error("[%s:%d] _forkexec_slurmstepd:child", __FILE__, __LINE__);
+
 		(void) close(STDOUT_FILENO); /* ignore return */
 		if (dup2(to_slurmd[1], STDOUT_FILENO) == -1) {
 			error("dup2 over STDOUT_FILENO: %m");
@@ -883,11 +921,19 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 			exit(1);
 		}
 		fd_set_noclose_on_exec(STDERR_FILENO);
+
+        error("[%s:%d] _forkexec_slurmstepd:child", __FILE__, __LINE__);
+
 		log_fini();
+
+        error("[%s:%d] _forkexec_slurmstepd:child log_fini", __FILE__, __LINE__);
+
 		if (!failed) {
-			if (conf->chos_loc && !access(conf->chos_loc, X_OK))
+            error("[%s:%d] _forkexec_slurmstepd:child execvp invoke", __FILE__, __LINE__);
+
+            if (conf->chos_loc && !access(conf->chos_loc, X_OK))
 				execvp(conf->chos_loc, argv);
-			else
+            else
 				execvp(argv[0], argv);
 			error("exec of slurmstepd failed: %m");
 		}

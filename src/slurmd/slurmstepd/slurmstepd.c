@@ -103,6 +103,8 @@ main (int argc, char **argv)
 	int rc = 0;
 	char *launch_params;
 
+    error("[%s:%d] slurmstepd start", __FILE__, __LINE__);
+
 	if (_process_cmdline (argc, argv) < 0)
 		fatal ("Error in slurmstepd command line");
 
@@ -113,11 +115,18 @@ main (int argc, char **argv)
 	init_setproctitle(argc, argv);
 	if (slurm_select_init(1) != SLURM_SUCCESS )
 		fatal( "failed to initialize node selection plugin" );
+
+    error("[%s:%d] slurmstepd slurm_select_init", __FILE__, __LINE__);
+
 	if (slurm_auth_init(NULL) != SLURM_SUCCESS)
 		fatal( "failed to initialize authentication plugin" );
 
+    error("[%s:%d] slurmstepd slurm_auth_init", __FILE__, __LINE__);
+
 	/* Receive job parameters from the slurmd */
 	_init_from_slurmd(STDIN_FILENO, argv, &cli, &self, &msg);
+
+    error("[%s:%d] slurmstepd _init_from_slurmd", __FILE__, __LINE__);
 
 	/* Create the stepd_step_rec_t, mostly from info in a
 	 * launch_tasks_request_msg_t or a batch_job_launch_msg_t */
@@ -127,10 +136,17 @@ main (int argc, char **argv)
 		goto ending;
 	}
 
+    error("[%s:%d] slurmstepd _step_setup", __FILE__, __LINE__);
+
 	/* fork handlers cause mutexes on some global data structures
 	 * to be re-initialized after the fork. */
 	list_install_fork_handlers();
+
+    error("[%s:%d] slurmstepd list_install_fork_handlers", __FILE__, __LINE__);
+
 	slurm_conf_install_fork_handlers();
+
+    error("[%s:%d] slurmstepd slurm_conf_install_fork_handlers", __FILE__, __LINE__);
 
 	/* sets job->msg_handle and job->msgid */
 	if (msg_thr_create(job) == SLURM_ERROR) {
@@ -139,8 +155,13 @@ main (int argc, char **argv)
 		goto ending;
 	}
 
+    error("[%s:%d] slurmstepd msg_thr_create", __FILE__, __LINE__);
+
 	_send_ok_to_slurmd(STDOUT_FILENO);
+    error("[%s:%d] slurmstepd _send_ok_to_slurmd", __FILE__, __LINE__);
+
 	_got_ack_from_slurmd(STDIN_FILENO);
+    error("[%s:%d] slurmstepd _got_ack_from_slurmd", __FILE__, __LINE__);
 
 	/* Fancy way of closing stdin that keeps STDIN_FILENO from being
 	 * allocated to any random file.  The slurmd already opened /dev/null
