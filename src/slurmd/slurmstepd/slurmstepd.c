@@ -44,6 +44,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <math.h>
 
 #include "src/common/cpu_frequency.h"
 #include "src/common/gres.h"
@@ -102,8 +103,11 @@ main (int argc, char **argv)
 	stepd_step_rec_t *job;
 	int rc = 0;
 	char *launch_params;
-
-    error("[%s:%d] slurmstepd start", __FILE__, __LINE__);
+    struct timeval tv_array[16] = {0};
+    size_t idx = 0, i;
+    
+    gettimeofday(&tv_array[idx++], NULL);
+    //error("[%s:%d] slurmstepd start", __FILE__, __LINE__);
 
 	if (_process_cmdline (argc, argv) < 0)
 		fatal ("Error in slurmstepd command line");
@@ -116,15 +120,31 @@ main (int argc, char **argv)
 	if (slurm_select_init(1) != SLURM_SUCCESS )
 		fatal( "failed to initialize node selection plugin" );
 
-    error("[%s:%d] slurmstepd slurm_select_init", __FILE__, __LINE__);
+    gettimeofday(&tv_array[idx++], NULL);
+    //error("[%s:%d] slurmstepd slurm_select_init", __FILE__, __LINE__);
 
 	if (slurm_auth_init(NULL) != SLURM_SUCCESS)
 		fatal( "failed to initialize authentication plugin" );
 
-    error("[%s:%d] slurmstepd slurm_auth_init", __FILE__, __LINE__);
+    gettimeofday(&tv_array[idx++], NULL);
+    //error("[%s:%d] slurmstepd slurm_auth_init", __FILE__, __LINE__);
 
 	/* Receive job parameters from the slurmd */
 	_init_from_slurmd(STDIN_FILENO, argv, &cli, &self, &msg);
+
+    for (i = 0; i < idx; i++) {
+        struct tm* tm_info;
+        char buffer[26];
+        int millisec = lrint(tv_array[i].tv_usec/1000.0);
+        if (millisec>=1000) {
+             millisec -=1000;
+            tv_array[i].tv_sec++;
+        }
+        
+        tm_info = localtime(&tv_array[i].tv_sec);
+        strftime(buffer, 26, "%Y:%m:%d %H:%M:%S", tm_info);
+        error("[%s:%d] %u %s.%03d", __FILE__, __LINE__, i, buffer, millisec);
+    }
 
     error("[%s:%d] slurmstepd _init_from_slurmd", __FILE__, __LINE__);
 
