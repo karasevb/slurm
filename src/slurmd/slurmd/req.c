@@ -62,6 +62,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
+#include <stdlib.h>
+#include <sys/time.h>
 
 #include "src/common/callerid.h"
 #include "src/common/cpu_frequency.h"
@@ -637,6 +639,87 @@ rwfail:
 }
 
 
+int output_stats(char *fname)
+{
+    char cmdline[1024];
+    struct timeval tv;
+    double start_tv, cur_tv;
+    gettimeofday(&tv NULL);
+    start_tv = tv.tv_sec + 1E-6*tv.tv_usec;
+
+    sprintf(cmdline, "echo \"-----------------------------------------------------\" >> %s", fname)
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"Date: \"`date` >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"Average CPU and device usage\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "iostat >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"Detailed CPU info\"` >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"mpstat:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "mpstat -P ALL >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"most active procs:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "ps -eo pcpu,pid,user,args | sort -k 1 -r | head -10 >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"proc list:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "ps -eo pcpu,pid,user,args >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"Memory state:\"` >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"free:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "free >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"vmstat:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "vmstat >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"vmstat -s:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "vmstat -s >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"vmstat -d:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "vmstat -d >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"proc list:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "ps -eo pcpu,pid,user,args >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"I/O state:\"` >> %s", fname);
+    system(cmdline);
+
+    sprintf(cmdline, "echo \"iotop:\"` >> %s", fname);
+    system(cmdline);
+    sprintf(cmdline, "sudo iotop --only -n 1 -b >> %s", fname);
+    system(cmdline);
+
+    cur_tv = tv.tv_sec + 1E-6 * tv.tv_usec;
+    double diff = cur_tv - start_tv;
+    sprintf(cmdline, "echo \"time ot collect: %lf\"` >> %s", diff, fname);
+    system(cmdline);
+}
+
+
+
 /*
  * Fork and exec the slurmstepd, then send the slurmstepd its
  * initialization data.  Then wait for slurmstepd to send an "ok"
@@ -680,6 +763,11 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 #if (SLURMSTEPD_MEMCHECK == 0)
 		int i;
 		time_t start_time = time(NULL);
+        struct timeval tv;
+        double start_tv, cur_tv;
+        gettimeofday(&tv NULL);
+        start_tv = tv.tv_sec + 1E-6*tv.tv_usec;
+        int sec_printed = 0;
 #endif
         error("[%s:%d] _forkexec_slurmstepd:parent start", __FILE__, __LINE__);
 		/*
@@ -707,18 +795,35 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		/* If running under valgrind/memcheck, this pipe doesn't work
 		 * correctly so just skip it. */
 #if (SLURMSTEPD_MEMCHECK == 0)
-		i = read(to_slurmd[0], &rc, sizeof(int));
+
+    {
+        int flags = fcntl(to_slurmd[0], F_GETFL, 0); 
+        fcntl(to_slurmd[0], F_SETFL, flags | O_NONBLOCK);
+        
+        rc = 0;
+        char *buf = (char*)&rc;
+        int offset = 0;
+        while(offset < sizeof(int) ){
+		    i = read(to_slurmd[0], buf + offset, sizeof(int) - offset);
+            if (i < 0) {
+			    error("%s: Can not read return code from slurmstepd "
+			      "got %d: %m", __func__, i);
+			    rc = SLURM_FAILURE;
+                break;
+		    }
+            offset += i;
+            usleep(100);
+        gettimeofday(&tv, NULL);
+        cur_tv = tv.tv_sec + 1E-6*tv.tv_usec;
+        int diff = cur_tv - start_tv;
+        if( diff> 2 && diff > sec_printed ){
+            sec_printed = diff;
+            output_stats("/tmp/<somedir>");
+        }
+    }
 
         error("[%s:%d] _forkexec_slurmstepd:parent read %i", __FILE__, __LINE__, i);
-		if (i < 0) {
-			error("%s: Can not read return code from slurmstepd "
-			      "got %d: %m", __func__, i);
-			rc = SLURM_FAILURE;
-		} else if (i != sizeof(int)) {
-			error("%s: slurmstepd failed to send return code "
-			      "got %d: %m", __func__, i);
-			rc = SLURM_FAILURE;
-		} else {
+		if( rc== 0 ) {
 			int delta_time = time(NULL) - start_time;
 			int cc;
 			if (delta_time > 5) {
