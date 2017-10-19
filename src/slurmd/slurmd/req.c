@@ -638,84 +638,91 @@ rwfail:
 	return errno;
 }
 
+int output_path_set(char *fname) {
+	sprintf(fname, "%s/var/stats_%u.log", SLURM_PREFIX, getpid());
+	return 0;
+}
 
 int output_stats(char *fname)
 {
     char cmdline[1024];
     struct timeval tv;
     double start_tv, cur_tv;
-    gettimeofday(&tv NULL);
+    gettimeofday(&tv, NULL);
     start_tv = tv.tv_sec + 1E-6*tv.tv_usec;
 
-    sprintf(cmdline, "echo \"-----------------------------------------------------\" >> %s", fname)
+    sprintf(cmdline, "echo \"-----------------------------------------------------\" >> %s", fname);
     system(cmdline);
 
     sprintf(cmdline, "echo \"Date: \"`date` >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"Average CPU and device usage\"` >> %s", fname);
+    sprintf(cmdline, "echo \"Average CPU and device usage\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "iostat >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"Detailed CPU info\"` >> %s", fname);
+    sprintf(cmdline, "echo \"Detailed CPU info\" >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"mpstat:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"mpstat:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "mpstat -P ALL >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"most active procs:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"most active procs:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "ps -eo pcpu,pid,user,args | sort -k 1 -r | head -10 >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"proc list:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"proc list:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "ps -eo pcpu,pid,user,args >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"Memory state:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"Memory state:\" >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"free:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"free:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "free >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"vmstat:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"vmstat:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "vmstat >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"vmstat -s:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"vmstat -s:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "vmstat -s >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"vmstat -d:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"vmstat -d:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "vmstat -d >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"proc list:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"proc list:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "ps -eo pcpu,pid,user,args >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"I/O state:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"I/O state:\" >> %s", fname);
     system(cmdline);
 
-    sprintf(cmdline, "echo \"iotop:\"` >> %s", fname);
+    sprintf(cmdline, "echo \"iotop:\" >> %s", fname);
     system(cmdline);
     sprintf(cmdline, "sudo iotop --only -n 1 -b >> %s", fname);
     system(cmdline);
 
+    gettimeofday(&tv, NULL);
     cur_tv = tv.tv_sec + 1E-6 * tv.tv_usec;
     double diff = cur_tv - start_tv;
-    sprintf(cmdline, "echo \"time ot collect: %lf\"` >> %s", diff, fname);
+    sprintf(cmdline, "echo \"time ot collect: %lf\" >> %s", diff, fname);
     system(cmdline);
+
+    return 0;
 }
 
 
@@ -765,9 +772,10 @@ _forkexec_slurmstepd(uint16_t type, void *req,
 		time_t start_time = time(NULL);
         struct timeval tv;
         double start_tv, cur_tv;
-        gettimeofday(&tv NULL);
+	gettimeofday(&tv, NULL);
         start_tv = tv.tv_sec + 1E-6*tv.tv_usec;
-        int sec_printed = 0;
+	int sec_printed = 0;
+	char stats_path[MAXPATHLEN];
 #endif
         error("[%s:%d] _forkexec_slurmstepd:parent start", __FILE__, __LINE__);
 		/*
@@ -805,21 +813,31 @@ _forkexec_slurmstepd(uint16_t type, void *req,
         int offset = 0;
         while(offset < sizeof(int) ){
 		    i = read(to_slurmd[0], buf + offset, sizeof(int) - offset);
-            if (i < 0) {
+	    /*if (i < 0) {
 			    error("%s: Can not read return code from slurmstepd "
 			      "got %d: %m", __func__, i);
 			    rc = SLURM_FAILURE;
-                break;
-		    }
+		break;
+		    }*/
+	if (i > 0) {
             offset += i;
-            usleep(100);
-        gettimeofday(&tv, NULL);
+	}
+
+	    usleep(100);
+
+	gettimeofday(&tv, NULL);
         cur_tv = tv.tv_sec + 1E-6*tv.tv_usec;
-        int diff = cur_tv - start_tv;
-        if( diff> 2 && diff > sec_printed ){
-            sec_printed = diff;
-            output_stats("/tmp/<somedir>");
+	int diff = cur_tv - start_tv;
+	if( diff> 2 && diff > sec_printed ){
+	    sec_printed = diff;
+	    if (0 != output_path_set(stats_path)) {
+		error("can not print the system statistics, since the output file path is not set");
+	    } else {
+		   output_stats(stats_path);
+		   error("print the system statistics, file \"%s\"", stats_path);
+	    }
         }
+	}
     }
 
         error("[%s:%d] _forkexec_slurmstepd:parent read %i", __FILE__, __LINE__, i);
