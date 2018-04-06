@@ -99,7 +99,8 @@ pmixp_coll_sndstatus2str(pmixp_coll_sndstate_t state)
 typedef enum {
 	PMIXP_COLL_TYPE_FENCE,
 	PMIXP_COLL_TYPE_CONNECT,
-	PMIXP_COLL_TYPE_DISCONNECT
+	PMIXP_COLL_TYPE_DISCONNECT,
+	PMIXP_COLL_TYPE_FENCE_RING
 } pmixp_coll_type_t;
 
 typedef enum {
