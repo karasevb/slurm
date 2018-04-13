@@ -43,6 +43,7 @@
 #include "pmixp_io.h"
 #include "pmixp_coll.h"
 #include "pmixp_dmdx.h"
+#include "pmixp_coll_common.h"
 
 /*
  * PMIx plugin state structure
@@ -57,6 +58,16 @@ typedef struct {
 	eio_handle_t *srv_handle;
 	pthread_mutex_t lock;
 } pmixp_state_t;
+
+typedef struct {
+	pmixp_coll_type_t type;
+	/* PMIx collective id */
+	struct {
+		pmixp_proc_t *procs;
+		size_t nprocs;
+	} pset;
+	void *coll_ptr;
+} pmixp_state_coll_t;
 
 extern pmixp_state_t _pmixp_state;
 
@@ -76,7 +87,7 @@ static inline void pmixp_state_sanity_check(void)
  * Collective state
  */
 
-pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
+void *pmixp_state_coll_get(pmixp_coll_type_t type,
 				   const pmixp_proc_t *ranges,
 				   size_t nranges);
 pmixp_coll_t *pmixp_state_coll_new(pmixp_coll_type_t type,

@@ -38,8 +38,12 @@
 #define PMIXP_COLL_RING_H
 #include "pmixp_common.h"
 #include "pmixp_debug.h"
+#include "pmixp_coll_common.h"
+#include "pmixp_coll.h"
+#include "pmixp_debug.h"
 
 #define PMIXP_COLL_RING_DEBUG 1
+
 #define PMIXP_COLL_RING_CTX_NUM 2
 
 #ifndef NDEBUG
@@ -99,6 +103,12 @@ typedef struct {
 	pmixp_coll_ring_ctx_t *ctx;
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
 
+    /* PMIx collective id */
+    struct {
+        pmixp_proc_t *procs;
+        size_t nprocs;
+    } pset;
+
 	/* libpmix callback data */
 	void *cbfunc;
 	void *cbdata;
@@ -131,7 +141,7 @@ static inline void pmixp_coll_ring_sanity_check(pmixp_coll_ring_ctx_t *coll_ctx)
 
 
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs);
+             size_t nprocs, pmixp_coll_type_t type);
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll);
 /*
 static inline int pmixp_coll_ctx_check_seq(pmixp_coll_ring_ctx_t *coll, uint32_t seq);
@@ -141,5 +151,8 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
 				 Buf buf);
 void pmixp_coll_ring_reset(pmixp_coll_ring_ctx_t *coll);
+int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
+                pmixp_coll_ring_msg_hdr_t *ring_hdr,
+                pmixp_proc_t **r, size_t *nr);
 
 #endif // PMIXP_COLL_RING_H

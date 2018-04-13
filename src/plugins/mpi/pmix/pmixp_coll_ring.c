@@ -40,6 +40,7 @@
 #include "pmixp_nspaces.h"
 #include "pmixp_server.h"
 #include "pmixp_client.h"
+#include "pmixp_coll_common.h"
 
 static int _hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
 				hostlist_t *hl_out)
@@ -94,6 +95,103 @@ static inline pmixp_coll_ring_t *_ctx_get_coll(pmixp_coll_ring_ctx_t *coll_ctx)
 	return (pmixp_coll_ring_t*)(coll_ctx->coll);
 }
 
+typedef struct {
+    pmixp_coll_ring_t *coll;
+    uint32_t seq;
+    Buf buf;
+    volatile uint32_t refcntr;
+} pmixp_coll_ring_cbdata_t;
+
+static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
+{
+    pmixp_coll_ring_cbdata_t *cbdata = (pmixp_coll_ring_cbdata_t*)_cbdata;
+    //pmixp_coll_ring_t *coll = cbdata->coll;
+
+    free_buf(cbdata->buf);
+}
+
+int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
+		pmixp_coll_ring_msg_hdr_t *ring_hdr,
+		pmixp_proc_t **r, size_t *nr)
+{
+    pmixp_proc_t *procs = NULL;
+    uint32_t nprocs = 0;
+    uint32_t tmp;
+    int rc, i;
+
+    /* 1. extract the type of collective */
+    if (SLURM_SUCCESS != (rc = unpack32(&tmp, buf))) {
+	PMIXP_ERROR("Cannot unpack collective type");
+	return rc;
+    }
+    *type = tmp;
+
+    /* 2. get the number of ranges */
+    if (SLURM_SUCCESS != (rc = unpack32(&nprocs, buf))) {
+	PMIXP_ERROR("Cannot unpack collective type");
+	return rc;
+    }
+    *nr = nprocs;
+
+    procs = xmalloc(sizeof(pmixp_proc_t) * nprocs);
+    *r = procs;
+
+    for (i = 0; i < (int)nprocs; i++) {
+	/* 3. get namespace/rank of particular process */
+	rc = unpackmem(procs[i].nspace, &tmp, buf);
+	if (SLURM_SUCCESS != rc) {
+	    PMIXP_ERROR("Cannot unpack namespace for process #%d",
+		    i);
+	    return rc;
+	}
+	procs[i].nspace[tmp] = '\0';
+
+	unsigned int tmp;
+	rc = unpack32(&tmp, buf);
+	procs[i].rank = tmp;
+	if (SLURM_SUCCESS != rc) {
+	    PMIXP_ERROR("Cannot unpack ranks for process #%d, nsp=%s",
+		    i, procs[i].nspace);
+	    return rc;
+	}
+    }
+
+    /* 3. extract the ring info */
+    if (SLURM_SUCCESS != (rc = unpackmem((char *)ring_hdr,
+			 &tmp,
+			 buf))) {
+	PMIXP_ERROR("Cannot unpack ring info");
+	return rc;
+    }
+
+    return SLURM_SUCCESS;
+}
+
+static int _pack_coll_ring_info(pmixp_coll_ring_t *coll,
+		pmixp_coll_ring_msg_hdr_t *ring_hdr, Buf buf)
+{
+    pmixp_proc_t *procs = coll->pset.procs;
+    size_t nprocs = coll->pset.nprocs;
+    uint32_t type = PMIXP_COLL_TYPE_FENCE_RING;
+    int i;
+
+    /* 1. store the type of collective */
+    pack32(type, buf);
+
+    /* 2. Put the number of ranges */
+    pack32(nprocs, buf);
+    for (i = 0; i < (int)nprocs; i++) {
+	/* Pack namespace */
+	packmem(procs->nspace, strlen(procs->nspace) + 1, buf);
+	pack32(procs->rank, buf);
+    }
+
+    /* 3. pack the ring header info */
+    packmem((char*)ring_hdr, sizeof(pmixp_coll_ring_msg_hdr_t), buf);
+
+    return SLURM_SUCCESS;
+}
+
 static void _msg_send_nb(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t sender,
 			 uint32_t hop_seq, char *data, size_t size)
 {
@@ -105,14 +203,30 @@ static void _msg_send_nb(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t sender,
 	hdr.seq = coll_ctx->seq;
 	hdr.hop_seq = hop_seq;
 	hdr.contrib_id = sender;
+	pmixp_ep_t ep = {0};
+	pmixp_coll_ring_cbdata_t *cbdata;
+	Buf buf;
 
-	assert(PMIXP_COLL_RING_STATE_MAGIC != coll_ctx->magic);
+	assert(PMIXP_COLL_RING_STATE_MAGIC == coll_ctx->magic);
 
 #ifdef PMIXP_COLL_RING_DEBUG
 	PMIXP_DEBUG("%p: coll=%d, hop=%d, size=%d, src=%d, contrib=%d",
-		    coll_ctx, hdr.seq, hdr.hop_seq, hdr.msgsize, nodeid, hdr.contrib_id);
+	    coll_ctx, hdr.seq, hdr.hop_seq, hdr.msgsize, nodeid, hdr.contrib_id);
 #endif
-	/* TODO
+	ep.type = PMIXP_EP_NOIDEID;
+	ep.ep.nodeid = _ring_next_id(coll);
+
+	buf = pmixp_server_buf_new();
+	_pack_coll_ring_info(coll, &hdr, buf);
+
+	cbdata = xmalloc(sizeof(pmixp_coll_ring_cbdata_t));
+	cbdata->coll = coll;
+	cbdata->seq = coll_ctx->seq;
+	cbdata->refcntr = 1;
+	cbdata->buf = buf;
+
+	pmixp_server_send_nb(&ep, PMIXP_MSG_RING, coll_ctx->seq, buf, _ring_sent_cb, cbdata);
+	/*
 	MPI_Isend((void*) &hdr, sizeof(msg_hdr_t), MPI_BYTE, nodeid, coll_ctx->seq, MPI_COMM_WORLD, &request);
 	if (size) {
 		MPI_Isend((void*) data, size, MPI_BYTE, nodeid, coll_ctx->seq, MPI_COMM_WORLD, &request);
@@ -132,7 +246,7 @@ static void _coll_send_all(pmixp_coll_ring_ctx_t *coll_ctx)
 		/*if (_rank == 1)
 			_msg_send_nb(coll_ctx, msg->contrib_id, msg->hop_seq, msg->ptr, msg->size);
 		*/
-		free(msg);
+		xfree(msg);
 	}
 }
 
@@ -142,12 +256,15 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	pmixp_coll_ring_t *coll = _ctx_get_coll(coll_ctx);
 	//ring_cbfunc_t cbfunc;
 
-	/* TODO
-	cbfunc = coll->cbfunc;
-	if (cbfunc) {
-		cbfunc(coll);
+	// TODO
+
+	pmixp_debug_hang(0);
+	if (coll->cbfunc) {
+		char *data = get_buf_data(coll_ctx->ring_buf);
+		size_t size = get_buf_offset(coll_ctx->ring_buf);
+		pmixp_lib_modex_invoke(coll->cbfunc, SLURM_SUCCESS, data, size,
+				       coll->cbdata, NULL, NULL);
 	}
-	*/
 	coll_ctx->state = PMIXP_COLL_RING_SYNC;
 	coll_ctx->contrib_local = false;
 	coll_ctx->contrib_prev = 0;
@@ -205,7 +322,7 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 }
 
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs)
+	     size_t nprocs, pmixp_coll_type_t type)
 {
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
@@ -219,18 +336,29 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		goto err_exit;
 	}
 
+#ifdef PMIXP_COLL_RING_DEBUG
+    PMIXP_DEBUG("%p: pmixp_coll_ring_init", coll);
+#endif
+
 	coll->ctx_cur = 0;
 	coll->ctx = &coll->ctx_array[coll->ctx_cur];
 	coll->peers_cnt = hostlist_count(hl);
 	coll->my_peerid = hostlist_find(hl, pmixp_info_hostname());
 
+	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
+	coll->pset.nprocs = nprocs;
+	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
+
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &coll->ctx_array[i];
+		coll_ctx->coll = coll;
+#ifndef NDEBUG
+		coll_ctx->magic = PMIXP_COLL_RING_STATE_MAGIC;
+#endif
 		coll_ctx->seq = i;
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
-		// TODO pmixp_server_buf_new();
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->send_list = list_create(NULL);
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * nprocs);
@@ -243,6 +371,14 @@ err_exit:
 	return SLURM_ERROR;
 }
 
+void pmixp_coll_ring_free(pmixp_coll_ring_t *coll)
+{
+#ifdef PMIXP_COLL_RING_DEBUG
+    PMIXP_DEBUG("%p", coll);
+#endif
+    return;
+}
+
 int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata)
 {
@@ -251,6 +387,10 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 	pmixp_coll_msg_ring_data_t *msg;
 	assert(coll->ctx);
 	pmixp_coll_ring_ctx_t *coll_ctx = coll->ctx;
+
+#ifdef PMIXP_COLL_RING_DEBUG
+    PMIXP_DEBUG("%p: %p", coll, coll_ctx);
+#endif
 
 	/* sanity check */
 	pmixp_coll_ring_sanity_check(coll_ctx);
@@ -277,7 +417,7 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 	memcpy(get_buf_data(coll_ctx->ring_buf) + get_buf_offset(coll_ctx->ring_buf),
 	       data, size);
 
-	msg = malloc(sizeof(pmixp_coll_ring_t));
+	msg = xmalloc(sizeof(pmixp_coll_ring_t));
 	msg->ptr = get_buf_data(coll_ctx->ring_buf) + get_buf_offset(coll_ctx->ring_buf);
 	msg->size = size;
 	msg->contrib_id = coll->my_peerid;
@@ -309,6 +449,10 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 	char *data_src = NULL, *data_dst = NULL;
 	pmixp_coll_ring_ctx_t *coll_ctx = coll->ctx;
 	uint32_t expexted_seq;
+
+#ifdef PMIXP_COLL_RING_DEBUG
+    PMIXP_DEBUG("%p: %p: contrib id %d, seq %d, nodeid %d", coll, coll_ctx, hdr->contrib_id, hdr->hop_seq, hdr->nodeid);
+#endif
 
 	// TODO sanity check
 
@@ -379,6 +523,5 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 exit:
 	/* unlock the structure */
 	slurm_mutex_unlock(&coll_ctx->lock);
-	free_buf(buf);
 	return ret;
 }

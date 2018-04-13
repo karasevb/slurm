@@ -48,6 +48,7 @@
 #include "pmixp_dmdx.h"
 #include "pmixp_conn.h"
 #include "pmixp_dconn.h"
+#include "pmixp_coll_ring.h"
 
 #include "src/common/slurm_auth.h"
 
@@ -590,7 +591,7 @@ static int _serv_read(eio_obj_t *obj, List objs)
 		return 0;
 	}
 
-	PMIXP_DEBUG("fd = %d", obj->fd);
+    //PMIXP_DEBUG("fd = %d", obj->fd);
 	pmixp_conn_t *conn = (pmixp_conn_t *)obj->arg;
 	bool proceed = true;
 
@@ -876,6 +877,37 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		break;
 	}
 #endif
+	case PMIXP_MSG_RING: {
+		pmixp_coll_ring_t *coll = NULL;
+		pmixp_proc_t *procs = NULL;
+		size_t nprocs = 0;
+		//int nodeid;
+		pmixp_coll_ring_msg_hdr_t ring_hdr;
+		pmixp_coll_type_t type = 0;
+
+		pmixp_debug_hang(0);
+
+		rc = pmixp_coll_ring_unpack_info(buf, &type, &ring_hdr,
+				&procs, &nprocs);
+		if (SLURM_SUCCESS != rc) {
+			char *nodename = pmixp_info_job_host(hdr->nodeid);
+			PMIXP_ERROR("Bad message header from node %s",
+			    nodename);
+			xfree(nodename);
+			goto exit;
+		}
+		coll = pmixp_state_coll_get(type, procs, nprocs);
+		xfree(procs);
+
+		if (!coll) {
+			PMIXP_ERROR("Collective not found");
+			break;
+		}
+
+		pmixp_coll_ring_contrib_prev(coll, &ring_hdr, buf);
+
+		break;
+	}
 	default:
 		PMIXP_ERROR("Unknown message type %d", hdr->type);
 		break;

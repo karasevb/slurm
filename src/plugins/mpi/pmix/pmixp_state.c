@@ -41,14 +41,34 @@
 #include "pmixp_state.h"
 #include "pmixp_nspaces.h"
 #include "pmixp_coll.h"
+#include "pmixp_coll_ring.h"
 
 pmixp_state_t _pmixp_state;
 
 void _xfree_coll(void *x)
 {
-	pmixp_coll_t *coll = (pmixp_coll_t *)x;
-	pmixp_coll_free(coll);
-	xfree(coll);
+	//pmixp_coll_t
+	pmixp_debug_hang(1);
+	pmixp_state_coll_t *state_coll = (pmixp_state_coll_t *)x;
+
+	switch(state_coll->type) {
+	case PMIXP_COLL_TYPE_FENCE:
+	{
+		pmixp_coll_t *coll = state_coll->coll_ptr;
+		pmixp_coll_free(coll);
+		break;
+	}
+	case PMIXP_COLL_TYPE_FENCE_RING:
+	{
+		pmixp_coll_ring_t *coll = state_coll->coll_ptr;
+		pmixp_coll_ring_free(coll);
+		break;
+	}
+	default:
+		//TODO
+		break;
+	}
+	xfree(state_coll);
 }
 
 int pmixp_state_init(void)
@@ -67,6 +87,7 @@ void pmixp_state_finalize(void)
 #ifndef NDEBUG
 	_pmixp_state.magic = 0;
 #endif
+	pmixp_debug_hang(0);
 	list_destroy(_pmixp_state.coll);
 }
 
@@ -85,11 +106,11 @@ static bool _compare_ranges(const pmixp_proc_t *r1, const pmixp_proc_t *r2,
 	return true;
 }
 
-static pmixp_coll_t *_find_collective(pmixp_coll_type_t type,
-				      const pmixp_proc_t *procs,
-				      size_t nprocs)
+static pmixp_state_coll_t *_find_collective(pmixp_coll_type_t type,
+			const pmixp_proc_t *procs,
+			size_t nprocs)
 {
-	pmixp_coll_t *coll = NULL, *ret = NULL;
+    pmixp_state_coll_t *coll = NULL, *ret = NULL;
 	ListIterator it;
 
 	/* Walk through the list looking for the collective descriptor */
@@ -115,11 +136,12 @@ exit:
 	return ret;
 }
 
-pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
-				   const pmixp_proc_t *procs,
-				   size_t nprocs)
+void *pmixp_state_coll_get(pmixp_coll_type_t type,
+	       const pmixp_proc_t *procs,
+	       size_t nprocs)
 {
-	pmixp_coll_t *ret = NULL;
+	pmixp_state_coll_t *state_coll = NULL;
+	int rc;
 
 	/* Collectives are created once for each type and process set
 	 * and resides till the end of jobstep lifetime.
@@ -127,8 +149,8 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 	 * exists.
 	 * First we try to find collective in the list without locking. */
 
-	if ((ret = _find_collective(type, procs, nprocs))) {
-		return ret;
+	if ((state_coll = _find_collective(type, procs, nprocs))) {
+		return state_coll->coll_ptr;
 	}
 
 	/* if we failed to find the collective we most probably need
@@ -143,37 +165,64 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 
 	slurm_mutex_lock(&_pmixp_state.lock);
 
-	if (!(ret = _find_collective(type, procs, nprocs))) {
+	if (!(state_coll = _find_collective(type, procs, nprocs))) {
 		/* 1. Create and insert unitialized but locked coll
 		 * structure into the list. We can release the state
 		 * structure right after that */
-		ret = xmalloc(sizeof(*ret));
+		state_coll = xmalloc(sizeof(*state_coll));
+		state_coll->type = type;
+		state_coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
+		state_coll->pset.nprocs = nprocs;
+		memcpy(state_coll->pset.procs, procs, sizeof(*procs) * nprocs);
+
+		switch (type) {
+		case PMIXP_COLL_TYPE_FENCE_RING:
+			state_coll->coll_ptr = xmalloc(sizeof(pmixp_coll_ring_t));
+			rc = pmixp_coll_ring_init(state_coll->coll_ptr, procs, nprocs, type);
+			break;
+		default:
+			state_coll->coll_ptr = xmalloc(sizeof(pmixp_coll_t));
+			rc = pmixp_coll_init(state_coll->coll_ptr, procs, nprocs, type);
+			break;
+		}
+
+
 		/* initialize with unlocked list but locked element */
-		if (SLURM_SUCCESS != pmixp_coll_init(ret, procs, nprocs, type)) {
-			if (ret->pset.procs) {
-				xfree(ret->pset.procs);
+		if (SLURM_SUCCESS != rc) {
+			if (state_coll->pset.procs) {
+				xfree(state_coll->pset.procs);
 			}
-			xfree(ret);
-			ret = NULL;
+			xfree(state_coll);
+			state_coll = NULL;
 		} else {
-			list_append(_pmixp_state.coll, ret);
+			list_append(_pmixp_state.coll, state_coll);
 		}
 	}
 
 	slurm_mutex_unlock(&_pmixp_state.lock);
-	return ret;
+	return state_coll->coll_ptr;
 }
 
 void pmixp_state_coll_cleanup(void)
 {
-	pmixp_coll_t *coll = NULL;
 	ListIterator it;
 	time_t ts = time(NULL);
+	pmixp_state_coll_t *state_coll;
 
 	/* Walk through the list looking for the collective descriptor */
 	it = list_iterator_create(_pmixp_state.coll);
-	while ((coll = list_next(it))) {
-		pmixp_coll_reset_if_to(coll, ts);
+	while ((state_coll = list_next(it))) {
+		switch(state_coll->type){
+			case PMIXP_COLL_TYPE_FENCE:
+				pmixp_coll_reset_if_to(state_coll->coll_ptr, ts);
+				break;
+			case PMIXP_COLL_TYPE_FENCE_RING:
+				//TODO
+				break;
+			default:
+				PMIXP_ERROR("Unknown collective type");
+				assert(0);
+		}
 	}
 	list_iterator_destroy(it);
 }

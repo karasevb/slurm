@@ -45,6 +45,7 @@
 #include "pmixp_server.h"
 #include "pmixp_dmdx.h"
 #include "pmixp_client.h"
+#include "pmixp_coll_ring.h"
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -102,19 +103,34 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 				 pmix_modex_cbfunc_t cbfunc, void *cbdata)
 {
 	PMIXP_DEBUG("called");
-	pmixp_coll_t *coll;
+
 	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
 	pmix_status_t status = PMIX_SUCCESS;
 	int ret;
 	size_t i;
 	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
+	char *fence_coll_str = getenv("PMIXP_COLL_TYPE_FENCE_RING");
+	bool fence_ring = true;
+
+	if (fence_coll_str) {
+		fence_ring = atoi(fence_coll_str);
+	}
 
 	for (i = 0; i < nprocs; i++) {
 		procs[i].rank = procs_v2[i].rank;
 		strncpy(procs[i].nspace, procs_v2[i].nspace, PMIXP_MAX_NSLEN);
 	}
-	coll = pmixp_state_coll_get(type, procs, nprocs);
-	ret = pmixp_coll_contrib_local(coll, data, ndata, cbfunc, cbdata);
+
+	if (fence_ring) {
+		pmixp_coll_ring_t *coll;
+		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING, procs, nprocs);
+		ret = pmixp_coll_ring_contrib_local(coll, data, ndata, cbfunc, cbdata);
+	} else {
+		pmixp_coll_t *coll;
+		coll = pmixp_state_coll_get(type, procs, nprocs);
+		ret = pmixp_coll_contrib_local(coll, data, ndata, cbfunc, cbdata);
+	}
+
 	xfree(procs);
 
 	if (SLURM_SUCCESS != ret) {
