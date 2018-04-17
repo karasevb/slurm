@@ -109,19 +109,27 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 	int ret;
 	size_t i;
 	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
-	char *fence_coll_str = getenv("PMIXP_COLL_TYPE_FENCE_RING");
-	bool fence_ring = true;
+	bool use_ring_coll = false;
 
-	if (fence_coll_str) {
-		fence_ring = atoi(fence_coll_str);
+	/* check the info keys */
+	if (info) {
+		for(i = 0; i < ninfo; i++) {
+			 if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
+				 pmixp_debug_hang(0);
+				 use_ring_coll = true;
+			 }
+		}
 	}
+#ifdef PMIXP_COLL_DEBUG
+	PMIXP_DEBUG("use_ring_fence=%d", use_ring_coll);
+#endif
 
 	for (i = 0; i < nprocs; i++) {
 		procs[i].rank = procs_v2[i].rank;
 		strncpy(procs[i].nspace, procs_v2[i].nspace, PMIXP_MAX_NSLEN);
 	}
 
-	if (fence_ring) {
+	if (use_ring_coll) {
 		pmixp_coll_ring_t *coll;
 		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING, procs, nprocs);
 		ret = pmixp_coll_ring_contrib_local(coll, data, ndata, cbfunc, cbdata);

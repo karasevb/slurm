@@ -39,6 +39,8 @@
 #define PMIXP_UTILS_H
 
 #include "pmixp_common.h"
+#include "pmixp_client.h"
+#include "pmixp_nspaces.h"
 
 void pmixp_xfree_xmalloced(void *x);
 void pmixp_free_Buf(void *x);
@@ -63,6 +65,8 @@ int pmixp_p2p_send(const char *nodename, const char *address, const char *data,
 int pmixp_rmdir_recursively(char *path);
 int pmixp_fixrights(char *path, uid_t uid, mode_t mode);
 int pmixp_mkdir(char *path, mode_t rights);
+int pmixp_hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
+			      hostlist_t *hl_out);
 
 /* lightweight pmix list of pointers */
 #define PMIXP_LIST_DEBUG 0

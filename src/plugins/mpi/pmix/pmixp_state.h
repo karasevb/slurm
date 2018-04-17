@@ -43,7 +43,6 @@
 #include "pmixp_io.h"
 #include "pmixp_coll.h"
 #include "pmixp_dmdx.h"
-#include "pmixp_coll_common.h"
 
 /*
  * PMIx plugin state structure

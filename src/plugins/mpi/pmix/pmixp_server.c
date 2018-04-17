@@ -881,11 +881,8 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		pmixp_coll_ring_t *coll = NULL;
 		pmixp_proc_t *procs = NULL;
 		size_t nprocs = 0;
-		//int nodeid;
 		pmixp_coll_ring_msg_hdr_t ring_hdr;
 		pmixp_coll_type_t type = 0;
-
-		pmixp_debug_hang(0);
 
 		rc = pmixp_coll_ring_unpack_info(buf, &type, &ring_hdr,
 				&procs, &nprocs);
@@ -896,16 +893,20 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			xfree(nodename);
 			goto exit;
 		}
+
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
-
 		if (!coll) {
 			PMIXP_ERROR("Collective not found");
 			break;
 		}
-
+#ifdef PMIXP_COLL_RING_DEBUG
+		PMIXP_DEBUG("FENCE_RING collective message from nodeid=%u, "
+			    "contrib_id=%u, hop_seq=%u, msgsize=%lu, ring_hdr=%lu",
+			    hdr->nodeid, ring_hdr.contrib_id,
+			    ring_hdr.hop_seq, ring_hdr.msgsize, sizeof(ring_hdr));
+#endif
 		pmixp_coll_ring_contrib_prev(coll, &ring_hdr, buf);
-
 		break;
 	}
 	default:

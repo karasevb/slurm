@@ -38,7 +38,6 @@
 #define PMIXP_COLL_RING_H
 #include "pmixp_common.h"
 #include "pmixp_debug.h"
-#include "pmixp_coll_common.h"
 #include "pmixp_coll.h"
 #include "pmixp_debug.h"
 
@@ -88,6 +87,9 @@ typedef struct {
 	Buf ring_buf;
 	List send_list;
 	pthread_mutex_t lock;
+
+	/* timestamp for stale collectives detection */
+	time_t ts;
 } pmixp_coll_ring_ctx_t;
 
 typedef struct {
@@ -103,11 +105,11 @@ typedef struct {
 	pmixp_coll_ring_ctx_t *ctx;
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
 
-    /* PMIx collective id */
-    struct {
-        pmixp_proc_t *procs;
-        size_t nprocs;
-    } pset;
+	/* PMIx collective id */
+	struct {
+		pmixp_proc_t *procs;
+		size_t nprocs;
+	} pset;
 
 	/* libpmix callback data */
 	void *cbfunc;
@@ -120,7 +122,7 @@ typedef struct {
 	uint32_t seq;
 	uint32_t hop_seq;
 	uint32_t nodeid;
-	uint32_t msgsize;
+	size_t msgsize;
 } pmixp_coll_ring_msg_hdr_t;
 
 typedef struct {
@@ -154,5 +156,6 @@ void pmixp_coll_ring_reset(pmixp_coll_ring_ctx_t *coll);
 int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
                 pmixp_coll_ring_msg_hdr_t *ring_hdr,
                 pmixp_proc_t **r, size_t *nr);
+void pmixp_coll_ring_reset_if_to(pmixp_coll_ring_t *coll, time_t ts);
 
 #endif // PMIXP_COLL_RING_H
