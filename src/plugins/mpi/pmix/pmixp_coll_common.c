@@ -1,9 +1,8 @@
 /*****************************************************************************\
- **  pmix_state.h - PMIx agent state related code
+ **  pmix_coll_common.c - PMIx collective primitives
  *****************************************************************************
- *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
- *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
+ *  Copyright (C) 2018      Mellanox Technologies. All rights reserved.
+ *  Written by Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -35,62 +34,42 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA.
  \*****************************************************************************/
 
-#ifndef PMIXP_STATE_H
-#define PMIXP_STATE_H
-
 #include "pmixp_common.h"
-#include "pmixp_debug.h"
-#include "pmixp_io.h"
 #include "pmixp_coll_common.h"
-#include "pmixp_coll.h"
-#include "pmixp_coll_ring.h"
-#include "pmixp_dmdx.h"
+#include "pmixp_nspaces.h"
+#include "pmixp_client.h"
 
-/*
- * PMIx plugin state structure
- */
+/* global collective sequence */
+pmixp_coll_seq_t pmixp_coll_seq = 0;
 
-typedef struct {
-#ifndef NDEBUG
-#define PMIXP_STATE_MAGIC 0xFEEDCAFE
-	int magic;
-#endif
-	List coll;
-	eio_handle_t *srv_handle;
-	pthread_mutex_t lock;
-} pmixp_state_t;
-
-typedef struct {
-	pmixp_coll_general_t cinfo;
-	union {
-		void *super;
-		pmixp_coll_t *tree;
-		pmixp_coll_ring_t *ring;
-	} coll;
-} pmixp_state_coll_t;
-
-extern pmixp_state_t _pmixp_state;
-
-/*
- * General PMIx plugin state manipulation functions
- */
-
-int pmixp_state_init(void);
-void pmixp_state_finalize(void);
-
-static inline void pmixp_state_sanity_check(void)
+int pmixp_hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
+			      hostlist_t *hl_out)
 {
-	xassert(_pmixp_state.magic == PMIXP_STATE_MAGIC);
+	int i;
+	hostlist_t hl = hostlist_create("");
+	pmixp_namespace_t *nsptr = NULL;
+	for (i = 0; i < nprocs; i++) {
+		char *node = NULL;
+		hostlist_t tmp;
+		nsptr = pmixp_nspaces_find(procs[i].nspace);
+		if (NULL == nsptr) {
+			goto err_exit;
+		}
+		if (pmixp_lib_is_wildcard(procs[i].rank)) {
+			tmp = hostlist_copy(nsptr->hl);
+		} else {
+			tmp = pmixp_nspace_rankhosts(nsptr, &procs[i].rank, 1);
+		}
+		while (NULL != (node = hostlist_pop(tmp))) {
+			hostlist_push(hl, node);
+			free(node);
+		}
+		hostlist_destroy(tmp);
+	}
+	hostlist_uniq(hl);
+	*hl_out = hl;
+	return SLURM_SUCCESS;
+err_exit:
+	hostlist_destroy(hl);
+	return SLURM_ERROR;
 }
-
-/*
- * Collective state
- */
-
-void *pmixp_state_coll_get(pmixp_coll_type_t type,
-			   const pmixp_proc_t *ranges,
-			   size_t nranges);
-
-void pmixp_state_coll_cleanup(void);
-
-#endif /* PMIXP_STATE_H */

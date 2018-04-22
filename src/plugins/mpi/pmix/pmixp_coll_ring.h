@@ -1,7 +1,7 @@
 /*****************************************************************************\
- **  pmix_coll.h - PMIx collective primitives
+ **  pmix_coll_ring.h - PMIx collective primitives
  *****************************************************************************
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2018      Mellanox Technologies. All rights reserved.
  *  Written by Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
@@ -38,7 +38,7 @@
 #define PMIXP_COLL_RING_H
 #include "pmixp_common.h"
 #include "pmixp_debug.h"
-#include "pmixp_coll.h"
+#include "pmixp_coll_common.h"
 #include "pmixp_debug.h"
 
 #define PMIXP_COLL_RING_DEBUG 1
@@ -54,21 +54,6 @@ typedef enum {
 	PMIXP_COLL_RING_COLLECT,
 	PMIXP_COLL_RING_DONE,
 } pmixp_coll_ring_state_t;
-
-inline static char *
-pmixp_coll_ring_state2str(pmixp_coll_ring_state_t state)
-{
-	switch (state) {
-	case PMIXP_COLL_RING_SYNC:
-		return "COLL_RING_SYNC";
-	case PMIXP_COLL_RING_COLLECT:
-		return "COLL_RING_COLLECT";
-	case PMIXP_COLL_RING_DONE:
-		return "COLL_RING_DONE";
-	default:
-		return "COLL_RING_UNKNOWN";
-	}
-}
 
 typedef struct {
 #ifndef NDEBUG
@@ -99,17 +84,12 @@ typedef struct {
 	/* general collective data */
 	int my_peerid;
 	int peers_cnt;
+	pmixp_coll_general_t *cinfo;
 
 	/* coll contexts data */
 	uint32_t ctx_cur;
 	pmixp_coll_ring_ctx_t *ctx;
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
-
-	/* PMIx collective id */
-	struct {
-		pmixp_proc_t *procs;
-		size_t nprocs;
-	} pset;
 
 	/* libpmix callback data */
 	void *cbfunc;
@@ -132,6 +112,20 @@ typedef struct {
 	uint32_t hop_seq;
 } pmixp_coll_msg_ring_data_t;
 
+inline static char *
+pmixp_coll_ring_state2str(pmixp_coll_ring_state_t state)
+{
+	switch (state) {
+	case PMIXP_COLL_RING_SYNC:
+		return "COLL_RING_SYNC";
+	case PMIXP_COLL_RING_COLLECT:
+		return "COLL_RING_COLLECT";
+	case PMIXP_COLL_RING_DONE:
+		return "COLL_RING_DONE";
+	default:
+		return "COLL_UNKNOWN";
+	}
+}
 
 static inline void pmixp_coll_ring_sanity_check(pmixp_coll_ring_ctx_t *coll_ctx)
 {
@@ -143,7 +137,7 @@ static inline void pmixp_coll_ring_sanity_check(pmixp_coll_ring_ctx_t *coll_ctx)
 
 
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
-             size_t nprocs, pmixp_coll_type_t type);
+	     size_t nprocs, pmixp_coll_general_t *cinfo);
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll);
 /*
 static inline int pmixp_coll_ctx_check_seq(pmixp_coll_ring_ctx_t *coll, uint32_t seq);

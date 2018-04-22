@@ -2,7 +2,7 @@
  **  pmix_coll.c - PMIx collective primitives
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
@@ -48,13 +48,13 @@ static void _reset_coll(pmixp_coll_t *coll);
 
 static int _pack_coll_info(pmixp_coll_t *coll, Buf buf)
 {
-	pmixp_proc_t *procs = coll->pset.procs;
-	size_t nprocs = coll->pset.nprocs;
+	pmixp_proc_t *procs = coll->cinfo->pset.procs;
+	size_t nprocs = coll->cinfo->pset.nprocs;
 	uint32_t size;
 	int i;
 
 	/* 1. store the type of collective */
-	size = coll->type;
+	size = coll->cinfo->type;
 	pack32(size, buf);
 
 	/* 2. Put the number of ranges */
@@ -218,20 +218,18 @@ static void _reset_coll(pmixp_coll_t *coll)
  * Based on ideas provided by Hongjia Cao <hjcao@nudt.edu.cn> in PMI2 plugin
  */
 int pmixp_coll_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-		    size_t nprocs, pmixp_coll_type_t type)
+		    size_t nprocs, pmixp_coll_general_t *cinfo)
 {
 	hostlist_t hl;
 	int max_depth, width, depth, i;
 	char *p;
+	PMIXP_DEBUG("%p: nprocs=%lu", coll, nprocs);
 
 #ifndef NDEBUG
 	coll->magic = PMIXP_COLL_STATE_MAGIC;
 #endif
-	coll->type = type;
 	coll->state = PMIXP_COLL_SYNC;
-	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
-	coll->pset.nprocs = nprocs;
-	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
+	coll->cinfo = cinfo;
 
 	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
 		/* TODO: provide ranges output routine */
@@ -329,9 +327,6 @@ err_exit:
 
 void pmixp_coll_free(pmixp_coll_t *coll)
 {
-	if (NULL != coll->pset.procs) {
-		xfree(coll->pset.procs);
-	}
 	if (NULL != coll->prnt_host) {
 		xfree(coll->prnt_host);
 	}

@@ -796,6 +796,15 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			xfree(nodename);
 			goto exit;
 		}
+		if (PMIXP_COLL_TYPE_FENCE != type) {
+			char *nodename = pmixp_info_job_host(hdr->nodeid);
+			PMIXP_ERROR("Unexpected collective type=%s from node %s, expected=%s",
+				   pmixp_coll_state2str(type), nodename,
+				   pmixp_coll_state2str(PMIXP_COLL_TYPE_FENCE));
+			xfree(nodename);
+			goto exit;
+		}
+
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
 
@@ -889,15 +898,24 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		if (SLURM_SUCCESS != rc) {
 			char *nodename = pmixp_info_job_host(hdr->nodeid);
 			PMIXP_ERROR("Bad message header from node %s",
-			    nodename);
+				    nodename);
+			xfree(nodename);
+			goto exit;
+		}
+		if (PMIXP_COLL_TYPE_FENCE_RING != type) {
+			char *nodename = pmixp_info_job_host(hdr->nodeid);
+			PMIXP_ERROR("Unexpected collective type=%s from node %s, expected=%s",
+				   pmixp_coll_ring_state2str(type), nodename,
+				   pmixp_coll_ring_state2str(PMIXP_COLL_TYPE_FENCE_RING));
 			xfree(nodename);
 			goto exit;
 		}
 
+		pmixp_debug_hang(0);
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
 		if (!coll) {
-			PMIXP_ERROR("Collective not found");
+			PMIXP_ERROR("Collective error");
 			break;
 		}
 #ifdef PMIXP_COLL_RING_DEBUG

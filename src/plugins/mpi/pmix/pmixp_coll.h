@@ -2,7 +2,7 @@
  **  pmix_coll.h - PMIx collective primitives
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
@@ -38,6 +38,7 @@
 #ifndef PMIXP_COLL_H
 #define PMIXP_COLL_H
 #include "pmixp_common.h"
+#include "pmixp_coll_common.h"
 #include "pmixp_debug.h"
 
 #define PMIXP_COLL_DEBUG 1
@@ -97,13 +98,6 @@ pmixp_coll_sndstatus2str(pmixp_coll_sndstate_t state)
 }
 
 typedef enum {
-	PMIXP_COLL_TYPE_FENCE,
-	PMIXP_COLL_TYPE_CONNECT,
-	PMIXP_COLL_TYPE_DISCONNECT,
-	PMIXP_COLL_TYPE_FENCE_RING
-} pmixp_coll_type_t;
-
-typedef enum {
 	PMIXP_COLL_REQ_PROGRESS,
 	PMIXP_COLL_REQ_SKIP,
 	PMIXP_COLL_REQ_FAILURE
@@ -119,12 +113,8 @@ typedef struct {
 
 	/* general information */
 	pmixp_coll_state_t state;
-	pmixp_coll_type_t type;
-	/* PMIx collective id */
-	struct {
-		pmixp_proc_t *procs;
-		size_t nprocs;
-	} pset;
+	pmixp_coll_general_t *cinfo;
+
 	int my_peerid;
 	int peers_cnt;
 #ifdef PMIXP_COLL_DEBUG
@@ -172,7 +162,7 @@ static inline void pmixp_coll_sanity_check(pmixp_coll_t *coll)
 }
 
 int pmixp_coll_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-		    size_t nprocs, pmixp_coll_type_t type);
+		    size_t nprocs, pmixp_coll_general_t *cinfo);
 void pmixp_coll_free(pmixp_coll_t *coll);
 
 pmixp_coll_t *pmixp_coll_from_cbdata(void *cbdata);

@@ -616,35 +616,3 @@ int pmixp_mkdir(char *path, mode_t rights)
 	}
 	return 0;
 }
-
-int pmixp_hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
-			      hostlist_t *hl_out)
-{
-	int i;
-	hostlist_t hl = hostlist_create("");
-	pmixp_namespace_t *nsptr = NULL;
-	for (i = 0; i < nprocs; i++) {
-		char *node = NULL;
-		hostlist_t tmp;
-		nsptr = pmixp_nspaces_find(procs[i].nspace);
-		if (NULL == nsptr) {
-			goto err_exit;
-		}
-		if (pmixp_lib_is_wildcard(procs[i].rank)) {
-			tmp = hostlist_copy(nsptr->hl);
-		} else {
-			tmp = pmixp_nspace_rankhosts(nsptr, &procs[i].rank, 1);
-		}
-		while (NULL != (node = hostlist_pop(tmp))) {
-			hostlist_push(hl, node);
-			free(node);
-		}
-		hostlist_destroy(tmp);
-	}
-	hostlist_uniq(hl);
-	*hl_out = hl;
-	return SLURM_SUCCESS;
-err_exit:
-	hostlist_destroy(hl);
-	return SLURM_ERROR;
-}

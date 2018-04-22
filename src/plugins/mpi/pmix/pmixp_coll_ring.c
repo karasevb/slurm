@@ -1,7 +1,7 @@
 /*****************************************************************************\
- **  pmix_coll.c - PMIx collective primitives
+ **  pmix_coll_ring.c - PMIx collective primitives
  *****************************************************************************
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2018      Mellanox Technologies. All rights reserved.
  *  Written by Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
@@ -36,6 +36,7 @@
 
 #include "pmixp_common.h"
 #include "src/common/slurm_protocol_api.h"
+#include "pmixp_coll_common.h"
 #include "pmixp_coll_ring.h"
 #include "pmixp_nspaces.h"
 #include "pmixp_server.h"
@@ -132,8 +133,8 @@ int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
 static int _pack_coll_ring_info(pmixp_coll_ring_t *coll,
 		pmixp_coll_ring_msg_hdr_t *ring_hdr, Buf buf)
 {
-	pmixp_proc_t *procs = coll->pset.procs;
-	size_t nprocs = coll->pset.nprocs;
+	pmixp_proc_t *procs = coll->cinfo->pset.procs;
+	size_t nprocs = coll->cinfo->pset.nprocs;
 	uint32_t type = PMIXP_COLL_TYPE_FENCE_RING;
 	int i;
 
@@ -275,6 +276,8 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 				coll->ctx = _shift_coll_ctx(coll);
 				coll->ctx_cur = coll->ctx->id;
 				coll->ctx->state = PMIXP_COLL_RING_SYNC;
+				/* update global coll seq */
+				pmixp_coll_seq++;
 				/* send the all collected ring contribs for the new collective */
 				break;
 			default:
@@ -286,7 +289,7 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 }
 
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
-	     size_t nprocs, pmixp_coll_type_t type)
+	     size_t nprocs, pmixp_coll_general_t *cinfo)
 {
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
@@ -294,6 +297,8 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 #ifndef NDEBUG
 	coll->magic = PMIXP_COLL_RING_STATE_MAGIC;
 #endif
+	pmixp_debug_hang(0);
+
 	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
 		/* TODO: provide ranges output routine */
 		PMIXP_ERROR("Bad ranges information");
@@ -303,10 +308,9 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 	coll->ctx = &coll->ctx_array[coll->ctx_cur];
 	coll->peers_cnt = hostlist_count(hl);
 	coll->my_peerid = hostlist_find(hl, pmixp_info_hostname());
+	hostlist_destroy(hl);
 
-	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
-	coll->pset.nprocs = nprocs;
-	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
+	coll->cinfo = cinfo;
 
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &coll->ctx_array[i];
@@ -314,18 +318,18 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 #ifndef NDEBUG
 		coll_ctx->magic = PMIXP_COLL_RING_STATE_MAGIC;
 #endif
-		coll_ctx->seq = i;
+		coll_ctx->seq = pmixp_coll_seq + i;
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->send_list = list_create(NULL);
-		coll_ctx->contrib_map = xmalloc(sizeof(bool) * nprocs);
-		memset(coll_ctx->contrib_map, 0, sizeof(bool) * nprocs);
+		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt);
+		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 		slurm_mutex_init(&coll_ctx->lock);
 	}
 #ifdef PMIXP_COLL_RING_DEBUG
-    PMIXP_DEBUG("%p: pmixp_coll_ring_init", coll->ctx);
+    PMIXP_DEBUG("%p: nprocs=%lu", coll->ctx, nprocs);
 #endif
 	return SLURM_SUCCESS;
 err_exit:
@@ -334,10 +338,15 @@ err_exit:
 
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll)
 {
-#ifdef PMIXP_COLL_RING_DEBUG
-    PMIXP_DEBUG("%p: called", coll->ctx);
-#endif
-    return;
+	int i;
+	pmixp_coll_ring_ctx_t *coll_ctx;
+	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+		coll_ctx = &coll->ctx_array[i];
+		free_buf(coll_ctx->ring_buf);
+		list_destroy(coll_ctx->send_list);
+		slurm_mutex_destroy(&coll_ctx->lock);
+		xfree(coll_ctx->contrib_map);
+	}
 }
 
 int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t size,
@@ -358,6 +367,9 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->ctx->lock);
+
+	/* assign the coll sequence */
+	coll_ctx->seq = pmixp_coll_seq;
 
 	/* change the state */
 	coll_ctx->ts = time(NULL);
@@ -401,6 +413,16 @@ exit:
 	return ret;
 }
 
+static int _ring_hdr_sanity_check(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr)
+{
+	if (hdr->contrib_id >= coll->peers_cnt) {
+		return 1;
+	}
+	if (hdr->nodeid != _ring_prev_id(coll)) {
+		return 1;
+	}
+}
+
 int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
 				 Buf buf)
 {
@@ -417,7 +439,9 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 		    coll_ctx, coll_ctx->seq, coll_ctx->state, hdr->nodeid,
 		    hdr->contrib_id, hdr->hop_seq, size);
 #endif
-	// TODO sanity check
+	if (_ring_hdr_sanity_check(coll, hdr)) {
+
+	}
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->ctx->lock);
@@ -439,8 +463,19 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 	}
 
 	/* shift the coll context if that contrib belongs to the next coll  */
-	if ((coll_ctx->seq +1) == hdr->seq) {
+	if ((pmixp_coll_seq +1) == hdr->seq) {
 		coll_ctx = _shift_coll_ctx(coll);
+		coll_ctx->seq = pmixp_coll_seq +1;
+	}
+	if (hdr->seq > coll_ctx->seq) {
+		char *nodename = pmixp_info_job_host(hdr->nodeid);
+		PMIXP_ERROR("%p: unexpected contrib from %s:%d: "
+			    "contrib_seq = %d, coll->seq = %d, "
+			    "state=%s",
+			    coll_ctx, nodename, hdr->nodeid,
+			    hdr->seq, coll_ctx->seq,
+			    pmixp_coll_ring_state2str(coll_ctx->state));
+		xfree(nodename);
 	}
 
 	/* compute the actual hops of ring: (src - dst + size) % size */
@@ -448,6 +483,10 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 	if (hdr->hop_seq != expexted_seq) {
 		PMIXP_ERROR("%p: unexpected ring seq number=%d, expect=%d, coll seq=%d",
 			    coll_ctx, hdr->hop_seq, expexted_seq, coll_ctx->seq);
+		goto exit;
+	}
+
+	if (hdr->contrib_id >= coll->peers_cnt) {
 		goto exit;
 	}
 

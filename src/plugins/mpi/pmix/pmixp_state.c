@@ -2,7 +2,7 @@
  **  pmix_state.c - PMIx agent state related code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of SLURM, a resource management program.
@@ -49,16 +49,16 @@ void _xfree_coll(void *x)
 {
 	pmixp_state_coll_t *state_coll = (pmixp_state_coll_t *)x;
 
-	switch(state_coll->type) {
+	switch(state_coll->cinfo.type) {
 	case PMIXP_COLL_TYPE_FENCE:
 	{
-		pmixp_coll_t *coll = state_coll->coll_ptr;
+		pmixp_coll_t *coll = state_coll->coll.tree;
 		pmixp_coll_free(coll);
 		break;
 	}
 	case PMIXP_COLL_TYPE_FENCE_RING:
 	{
-		pmixp_coll_ring_t *coll = state_coll->coll_ptr;
+		pmixp_coll_ring_t *coll = state_coll->coll.ring;
 		pmixp_coll_ring_free(coll);
 		break;
 	}
@@ -67,6 +67,8 @@ void _xfree_coll(void *x)
 		assert(0);
 		break;
 	}
+	xfree(state_coll->cinfo.pset.procs);
+	xfree(state_coll->coll);
 	xfree(state_coll);
 }
 
@@ -109,24 +111,24 @@ static pmixp_state_coll_t *_find_collective(pmixp_coll_type_t type,
 			const pmixp_proc_t *procs,
 			size_t nprocs)
 {
-	pmixp_state_coll_t *coll = NULL, *ret = NULL;
+	pmixp_state_coll_t *state_coll = NULL, *ret = NULL;
 	ListIterator it;
 
 	/* Walk through the list looking for the collective descriptor */
 	it = list_iterator_create(_pmixp_state.coll);
-	while (NULL != (coll = list_next(it))) {
-		if (coll->pset.nprocs != nprocs) {
+	while (NULL != (state_coll = list_next(it))) {
+		if (state_coll->cinfo.pset.nprocs != nprocs) {
 			continue;
 		}
-		if (coll->type != type) {
+		if (state_coll->cinfo.type != type) {
 			continue;
 		}
-		if (!coll->pset.nprocs) {
-			ret = coll;
+		if (!state_coll->cinfo.pset.nprocs) {
+			ret = state_coll;
 			goto exit;
 		}
-		if (_compare_ranges(coll->pset.procs, procs, nprocs)) {
-			ret = coll;
+		if (_compare_ranges(state_coll->cinfo.pset.procs, procs, nprocs)) {
+			ret = state_coll;
 			goto exit;
 		}
 	}
@@ -149,7 +151,7 @@ void *pmixp_state_coll_get(pmixp_coll_type_t type,
 	 * First we try to find collective in the list without locking. */
 
 	if ((state_coll = _find_collective(type, procs, nprocs))) {
-		return state_coll->coll_ptr;
+		return state_coll->coll.super;
 	}
 
 	/* if we failed to find the collective we most probably need
@@ -169,19 +171,22 @@ void *pmixp_state_coll_get(pmixp_coll_type_t type,
 		 * structure into the list. We can release the state
 		 * structure right after that */
 		state_coll = xmalloc(sizeof(*state_coll));
-		state_coll->type = type;
-		state_coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
-		state_coll->pset.nprocs = nprocs;
-		memcpy(state_coll->pset.procs, procs, sizeof(*procs) * nprocs);
+		state_coll->cinfo.type = type;
+		state_coll->cinfo.pset.procs = xmalloc(sizeof(*procs) * nprocs);
+		state_coll->cinfo.pset.nprocs = nprocs;
+		memcpy(state_coll->cinfo.pset.procs, procs, sizeof(*procs) * nprocs);
+
 
 		switch (type) {
 		case PMIXP_COLL_TYPE_FENCE_RING:
-			state_coll->coll_ptr = xmalloc(sizeof(pmixp_coll_ring_t));
-			rc = pmixp_coll_ring_init(state_coll->coll_ptr, procs, nprocs, type);
+			state_coll->coll.ring = xmalloc(sizeof(pmixp_coll_ring_t));
+			rc = pmixp_coll_ring_init(state_coll->coll.ring, procs,
+						  nprocs, &state_coll->cinfo);
 			break;
 		case PMIXP_COLL_TYPE_FENCE:
-			state_coll->coll_ptr = xmalloc(sizeof(pmixp_coll_t));
-			rc = pmixp_coll_init(state_coll->coll_ptr, procs, nprocs, type);
+			state_coll->coll.tree = xmalloc(sizeof(pmixp_coll_t));
+			rc = pmixp_coll_init(state_coll->coll.tree, procs,
+					     nprocs, &state_coll->cinfo);
 			break;
 		default:
 			PMIXP_ERROR("Unknown collective type");
@@ -192,8 +197,8 @@ void *pmixp_state_coll_get(pmixp_coll_type_t type,
 
 		/* initialize with unlocked list but locked element */
 		if (SLURM_SUCCESS != rc) {
-			if (state_coll->pset.procs) {
-				xfree(state_coll->pset.procs);
+			if (state_coll->cinfo.pset.procs) {
+				xfree(state_coll->cinfo.pset.procs);
 			}
 			xfree(state_coll);
 			state_coll = NULL;
@@ -201,9 +206,9 @@ void *pmixp_state_coll_get(pmixp_coll_type_t type,
 			list_append(_pmixp_state.coll, state_coll);
 		}
 	}
-
 	slurm_mutex_unlock(&_pmixp_state.lock);
-	return state_coll->coll_ptr;
+
+	return state_coll->coll.super;
 }
 
 void pmixp_state_coll_cleanup(void)
@@ -215,12 +220,12 @@ void pmixp_state_coll_cleanup(void)
 	/* Walk through the list looking for the collective descriptor */
 	it = list_iterator_create(_pmixp_state.coll);
 	while ((state_coll = list_next(it))) {
-		switch(state_coll->type){
+		switch(state_coll->cinfo.type){
 			case PMIXP_COLL_TYPE_FENCE:
-				pmixp_coll_reset_if_to(state_coll->coll_ptr, ts);
+				pmixp_coll_reset_if_to(state_coll->coll.tree, ts);
 				break;
 			case PMIXP_COLL_TYPE_FENCE_RING:
-				pmixp_coll_ring_reset_if_to(state_coll->coll_ptr, ts);
+				pmixp_coll_ring_reset_if_to(state_coll->coll.ring, ts);
 				break;
 			default:
 				PMIXP_ERROR("Unknown collective type");

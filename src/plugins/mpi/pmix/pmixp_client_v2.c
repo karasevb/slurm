@@ -2,7 +2,7 @@
  **  pmix_client_v2.c - PMIx v2 client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
  *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *

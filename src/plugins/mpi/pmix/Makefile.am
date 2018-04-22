@@ -15,7 +15,8 @@ pmix_src = mpi_pmix.c \
 	pmixp_server.h pmixp_state.h pmixp_io.h pmixp_utils.h pmixp_dmdx.h \
 	pmixp_conn.c pmixp_dconn.c pmixp_dconn_tcp.c \
 	pmixp_conn.h pmixp_dconn.h pmixp_dconn_tcp.h \
-	pmixp_coll_ring.c pmixp_coll_ring.h
+	pmixp_coll_ring.c pmixp_coll_common.c \
+	pmixp_coll_ring.h pmixp_coll_common.h
 
 if HAVE_UCX
 pmix_src += pmixp_dconn_ucx.c pmixp_dconn_ucx.h
