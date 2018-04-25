@@ -357,7 +357,7 @@ typedef struct {
  * use it for internal collective
  * performance evaluation tool.
  */
-pmixp_coll_t *pmixp_coll_from_cbdata(void *cbdata)
+void *pmixp_coll_from_cbdata(void *cbdata)
 {
 	pmixp_coll_cbdata_t *ptr = (pmixp_coll_cbdata_t*)cbdata;
 	pmixp_coll_sanity_check(ptr->coll);

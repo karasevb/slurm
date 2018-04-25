@@ -1687,6 +1687,7 @@ static pthread_mutex_t _pmixp_pp_lock;
 #define PMIXP_CPERF_PWR2_MAX 20
 
 static bool _pmixp_cperf_on = false;
+static bool _pmixp_cperf_ring = false;
 static int _pmixp_cperf_low = PMIXP_CPERF_PWR2_MIN;
 static int _pmixp_cperf_up = PMIXP_CPERF_PWR2_MAX;
 static int _pmixp_cperf_bound = 10;
@@ -1718,6 +1719,12 @@ void pmixp_server_init_cperf(char ***env)
 	}
 	if (!strcmp("1", env_ptr) || !strcmp("true", env_ptr)) {
 		_pmixp_cperf_on = true;
+	}
+
+	if ((env_ptr = getenvp(*env, PMIXP_CPERF_RING))) {
+		if (!strcmp("1", env_ptr) || !strcmp("true", env_ptr)) {
+			_pmixp_cperf_ring = true;
+		}
 	}
 
 	if ((env_ptr = getenvp(*env, PMIXP_CPERF_LOW))) {
@@ -1760,6 +1767,11 @@ bool pmixp_server_want_cperf()
 	return _pmixp_cperf_on;
 }
 
+bool pmixp_server_cperf_ring(void)
+{
+	return _pmixp_cperf_ring;
+}
+
 static void _pmixp_cperf_cbfunc(int status,
 				const char *data, size_t ndata,
 				void *cbdata,
@@ -1769,7 +1781,15 @@ static void _pmixp_cperf_cbfunc(int status,
 	/* small violation - we kinow what is the type of release
 	 * data and will use that knowledge to avoid the deadlock
 	 */
-	pmixp_coll_t *coll = pmixp_coll_from_cbdata(r_cbdata);
+	pthread_mutex_t *lock = NULL;
+	if (pmixp_server_cperf_ring()) {
+		pmixp_coll_ring_ctx_t *coll_ctx =
+			(pmixp_coll_ring_ctx_t *) pmixp_coll_from_cbdata(r_cbdata);
+		lock = &coll_ctx->lock;
+	} else {
+		pmixp_coll_t *coll = pmixp_coll_from_cbdata(r_cbdata);
+		lock = &coll->lock;
+	}
 	xassert(SLURM_SUCCESS == status);
 
 	/*
@@ -1777,13 +1797,13 @@ static void _pmixp_cperf_cbfunc(int status,
 	 * need to unlock it so that callback won't
 	 * deadlock
 	 */
-	slurm_mutex_unlock(&coll->lock);
+	slurm_mutex_unlock(lock);
 
 	/* invoke the callbak */
 	pmixp_lib_release_invoke(r_fn, r_cbdata);
 
 	/* lock it back before proceed */
-	slurm_mutex_lock(&coll->lock);
+	slurm_mutex_lock(lock);
 
 	/* go to the next iteration */
 	_pmixp_server_cperf_inc();
@@ -1792,17 +1812,23 @@ static void _pmixp_cperf_cbfunc(int status,
 
 static int _pmixp_server_cperf_iter(char *data, int ndata)
 {
-	pmixp_coll_t *coll;
 	pmixp_proc_t procs;
 	int cur_count = _pmixp_server_cperf_count();
 
 	strncpy(procs.nspace, pmixp_info_namespace(), PMIXP_MAX_NSLEN);
 	procs.rank = pmixp_lib_get_wildcard();
 
-	coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE, &procs, 1);
-	xassert(!pmixp_coll_contrib_local(coll, data, ndata,
-					  _pmixp_cperf_cbfunc, NULL));
-
+	if (pmixp_server_cperf_ring()) {
+		pmixp_coll_ring_t *coll_ring;
+		coll_ring = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING, &procs, 1);
+		xassert(!pmixp_coll_ring_contrib_local(coll_ring, data, ndata,
+						       _pmixp_cperf_cbfunc, NULL));
+	} else {
+		pmixp_coll_t *coll;
+		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE, &procs, 1);
+		xassert(!pmixp_coll_contrib_local(coll, data, ndata,
+						  _pmixp_cperf_cbfunc, NULL));
+	}
 	while (cur_count == _pmixp_server_cperf_count()) {
 		usleep(1);
 	}

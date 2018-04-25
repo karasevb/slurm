@@ -160,7 +160,6 @@ static Buf _get_fwd_buf(pmixp_coll_ring_ctx_t *coll_ctx)
 {
 	Buf buf = list_pop(coll_ctx->fwrd_buf_pool);
 	if (!buf) {
-		PMIXP_DEBUG("init new buf");
 		buf = pmixp_server_buf_new();
 	}
 	return buf;
@@ -184,8 +183,8 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	int rc = SLURM_SUCCESS;
 
 #ifdef PMIXP_COLL_RING_DEBUG
-	PMIXP_DEBUG("%p: transit data to nodeid=%d hop=%d, size=%lu, contrib=%d",
-	    coll->ctx, next_nodeid, hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
+	PMIXP_DEBUG("%p: transit data to nodeid=%d, seq=%d, hop=%d, size=%lu, contrib=%d",
+		    coll->ctx, next_nodeid, hdr.seq, hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
 #endif
 	if (!buf) {
 		rc = SLURM_ERROR;
@@ -208,7 +207,7 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	cbdata->buf = buf;
 	cbdata->coll_ctx = coll_ctx;
 	rc = pmixp_server_send_nb(ep, PMIXP_MSG_RING, coll_ctx->seq, buf,
-			     _ring_sent_cb, cbdata);
+				  _ring_sent_cb, cbdata);
 exit:
 	return rc;
 }
@@ -335,14 +334,14 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
-		coll_ctx->fwrd_buf_pool = list_create(_fwrd_pool_free);
+	coll_ctx->fwrd_buf_pool = list_create(_fwrd_pool_free);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 		slurm_mutex_init(&coll_ctx->lock);
 	}
 #ifdef PMIXP_COLL_RING_DEBUG
-    PMIXP_DEBUG("%p: nprocs=%lu", coll->ctx, nprocs);
+	PMIXP_DEBUG("%p: nprocs=%lu", coll->ctx, nprocs);
 #endif
 	return SLURM_SUCCESS;
 err_exit:
@@ -538,7 +537,7 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 	/* set to transit ring contriburion */
 	if (hdr->contrib_id != _ring_next_id(coll)) {
 		ret = _ring_forward_data(coll_ctx, hdr->contrib_id, hdr->hop_seq +1,
-				   data_dst, size);
+					 data_dst, size);
 		if (ret) {
 			PMIXP_ERROR("Cannot forward ring data");
 			goto exit;
@@ -564,13 +563,12 @@ void pmixp_coll_ring_reset_if_to(pmixp_coll_ring_t *coll, time_t ts) {
 	if (PMIXP_COLL_RING_SYNC == coll->ctx->state) {
 		slurm_mutex_unlock(&coll_ctx->lock);
 		return;
-		//continue;
 	}
 	if (ts - coll_ctx->ts > pmixp_info_timeout()) {
 		/* respond to the libpmix */
 		if (coll->ctx->contrib_local && coll->cbfunc) {
 			pmixp_lib_modex_invoke(coll->cbfunc, PMIXP_ERR_TIMEOUT, NULL,
-				       0, coll->cbdata, NULL, NULL);
+					       0, coll->cbdata, NULL, NULL);
 		}
 		/* drop the collective */
 		_reset_coll_ring(coll_ctx);

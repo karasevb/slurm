@@ -135,6 +135,8 @@
  * before running a job
  */
 #define PMIXP_CPERF_ON "SLURM_PMIX_WANT_COLL_PERF"
+/* Set to enable ring collective */
+#define PMIXP_CPERF_RING "SLURM_PMIX_COLL_PERF_RING"
 /* Smallest message size (power of 2) */
 #define PMIXP_CPERF_LOW "SLURM_PMIX_COLL_PERF_LOW_PWR2"
 /* Largest message size (power of 2) */

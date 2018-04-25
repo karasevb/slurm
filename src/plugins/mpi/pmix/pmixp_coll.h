@@ -165,7 +165,7 @@ int pmixp_coll_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 		    size_t nprocs, pmixp_coll_general_t *cinfo);
 void pmixp_coll_free(pmixp_coll_t *coll);
 
-pmixp_coll_t *pmixp_coll_from_cbdata(void *cbdata);
+void *pmixp_coll_from_cbdata(void *cbdata);
 
 /*
  * This is important routine that takes responsibility to decide
