@@ -104,7 +104,6 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 {
 	PMIXP_DEBUG("called");
 
-	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
 	pmix_status_t status = PMIX_SUCCESS;
 	int ret;
 	size_t i;
@@ -113,11 +112,11 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 
 	/* check the info keys */
 	if (info) {
-		for(i = 0; i < ninfo; i++) {
-			 if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
-				 pmixp_debug_hang(0);
-				 use_ring_coll = true;
-			 }
+		for (i = 0; i < ninfo; i++) {
+			if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
+				use_ring_coll = true;
+
+			}
 		}
 	}
 #ifdef PMIXP_COLL_DEBUG
@@ -132,13 +131,22 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 	if (use_ring_coll) {
 		pmixp_coll_ring_t *coll;
 		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING, procs, nprocs);
+		if (!coll) {
+			ret = SLURM_ERROR;
+			goto exit;
+		}
 		ret = pmixp_coll_ring_contrib_local(coll, data, ndata, cbfunc, cbdata);
 	} else {
 		pmixp_coll_t *coll;
-		coll = pmixp_state_coll_get(type, procs, nprocs);
+		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE, procs, nprocs);
+		if (!coll) {
+			ret = SLURM_ERROR;
+			goto exit;
+		}
 		ret = pmixp_coll_contrib_local(coll, data, ndata, cbfunc, cbdata);
 	}
 
+exit:
 	xfree(procs);
 
 	if (SLURM_SUCCESS != ret) {

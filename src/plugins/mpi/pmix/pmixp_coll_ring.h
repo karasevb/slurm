@@ -55,12 +55,14 @@ typedef enum {
 	PMIXP_COLL_RING_DONE,
 } pmixp_coll_ring_state_t;
 
+struct pmixp_coll_ring_s;
+
 typedef struct {
 #ifndef NDEBUG
 	int magic;
 #endif
 	/* ptr to coll data */
-	void *coll;
+	struct pmixp_coll_ring_s *coll;
 
 	/* context data */
 	uint32_t id;
@@ -70,14 +72,14 @@ typedef struct {
 	bool *contrib_map;
 	pmixp_coll_ring_state_t state;
 	Buf ring_buf;
-	List send_list;
+	List fwrd_buf_pool;
 	pthread_mutex_t lock;
 
 	/* timestamp for stale collectives detection */
 	time_t ts;
 } pmixp_coll_ring_ctx_t;
 
-typedef struct {
+typedef struct pmixp_coll_ring_s {
 #ifndef NDEBUG
 	int magic;
 #endif
