@@ -893,9 +893,8 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		pmixp_coll_ring_msg_hdr_t ring_hdr;
 		pmixp_coll_type_t type = 0;
 
-		rc = pmixp_coll_ring_unpack_info(buf, &type, &ring_hdr,
-				&procs, &nprocs);
-		if (SLURM_SUCCESS != rc) {
+		if (pmixp_coll_ring_unpack_info(buf, &type, &ring_hdr,
+						&procs, &nprocs)) {
 			char *nodename = pmixp_info_job_host(hdr->nodeid);
 			PMIXP_ERROR("Bad message header from node %s",
 				    nodename);
@@ -911,7 +910,6 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			goto exit;
 		}
 
-		pmixp_debug_hang(0);
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
 		if (!coll) {
@@ -924,6 +922,22 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			    hdr->nodeid, ring_hdr.contrib_id,
 			    ring_hdr.hop_seq, ring_hdr.msgsize, sizeof(ring_hdr));
 #endif
+		if (pmixp_coll_ring_hdr_sanity_check(coll, &ring_hdr)) {
+			/* no error, just reject */
+			break;
+		}
+
+		if (pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq)) {
+			/* no error, just reject */
+			char *nodename = pmixp_info_job_host(ring_hdr.nodeid);
+			PMIXP_DEBUG("Unexpected contrib from %s:%d: "
+				    "contrib_seq=%d, cur seq=%d, ",
+				    nodename, ring_hdr.nodeid,
+				    ring_hdr.seq, pmixp_coll_seq);
+			xfree(nodename);
+			break;
+		}
+
 		pmixp_coll_ring_contrib_prev(coll, &ring_hdr, buf);
 		break;
 	}

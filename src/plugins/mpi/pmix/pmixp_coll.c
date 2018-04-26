@@ -177,7 +177,7 @@ static void _reset_coll(pmixp_coll_t *coll)
 	case PMIXP_COLL_COLLECT:
 	case PMIXP_COLL_UPFWD:
 	case PMIXP_COLL_UPFWD_WSC:
-		coll->seq++;
+		coll->seq = ++pmixp_coll_seq;
 		coll->state = PMIXP_COLL_SYNC;
 		_reset_coll_ufwd(coll);
 		_reset_coll_dfwd(coll);
@@ -190,7 +190,7 @@ static void _reset_coll(pmixp_coll_t *coll)
 		 * next collective's data */
 	case PMIXP_COLL_DOWNFWD:
 		/* same with downward state */
-		coll->seq++;
+		coll->seq = ++pmixp_coll_seq;
 		_reset_coll_dfwd(coll);
 		if (coll->contrib_local || coll->contrib_children) {
 			/* next collective was already started */
@@ -250,7 +250,7 @@ int pmixp_coll_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 			  &max_depth);
 
 	/* We interested in amount of direct childs */
-	coll->seq = 0;
+	coll->seq = pmixp_coll_seq;
 	coll->contrib_children = 0;
 	coll->contrib_local = false;
 	coll->chldrn_ids = xmalloc(sizeof(int) * width);
