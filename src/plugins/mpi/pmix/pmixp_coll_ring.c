@@ -283,7 +283,7 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	} while(ret);
 }
 
-static void _fwrd_pool_free(void *p)
+static void _forward_pool_free(void *p)
 {
 	Buf buf = (Buf)p;
 	free_buf(buf);
@@ -295,28 +295,34 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const 
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+		slurm_mutex_lock(&coll->ctx_array[i].lock);
 		if (coll->ctx_array[i].in_use) {
 			if (seq == coll->ctx_array[i].seq) {
 				/* the correspond coll seq is found */
 				coll_ctx = &coll->ctx_array[i];
 				/* bind the CXT to coll */
 				coll->ctx = coll_ctx;
+				slurm_mutex_unlock(&coll->ctx_array[i].lock);
 				return coll_ctx;
 			}
 		}
+		slurm_mutex_unlock(&coll->ctx_array[i].lock);
 	}
 	/* this coll seq wasn't found and that isn't old coll seq */
 	if (!coll_ctx && (seq >= pmixp_coll_seq)) {
 		/* find the free coll ctx */
 		for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+			slurm_mutex_lock(&coll->ctx_array[i].lock);
 			if (!coll->ctx_array[i].in_use) {
 				coll_ctx = &coll->ctx_array[i];
 				coll_ctx->in_use = true;
 				coll_ctx->seq = seq;
 				/* bind the CXT to coll */
 				coll->ctx = coll_ctx;
+				slurm_mutex_unlock(&coll->ctx_array[i].lock);
 				return coll_ctx;
 			}
+			slurm_mutex_unlock(&coll->ctx_array[i].lock);
 		}
 	}
 	return coll_ctx;
@@ -356,7 +362,7 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
-	coll_ctx->fwrd_buf_pool = list_create(_fwrd_pool_free);
+	coll_ctx->fwrd_buf_pool = list_create(_forward_pool_free);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
