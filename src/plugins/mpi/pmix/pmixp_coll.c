@@ -903,6 +903,9 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
 
+	/* set collective seq */
+	coll->seq = pmixp_coll_seq;
+
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%s, size=%zd",
 		    coll, coll->seq, pmixp_coll_state2str(coll->state), size);

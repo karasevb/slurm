@@ -289,7 +289,7 @@ static void _fwrd_pool_free(void *p)
 	free_buf(buf);
 }
 
-int pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq)
+pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq)
 {
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
@@ -301,7 +301,7 @@ int pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq)
 				coll_ctx = &coll->ctx_array[i];
 				/* bind the CXT to coll */
 				coll->ctx = coll_ctx;
-				return SLURM_SUCCESS;
+				return coll_ctx;
 			}
 		}
 	}
@@ -315,11 +315,11 @@ int pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq)
 				coll_ctx->seq = seq;
 				/* bind the CXT to coll */
 				coll->ctx = coll_ctx;
-				return SLURM_SUCCESS;
+				return coll_ctx;
 			}
 		}
 	}
-	return SLURM_ERROR;
+	return coll_ctx;
 }
 
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
@@ -388,9 +388,14 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 				  void *cbfunc, void *cbdata)
 {
 	int ret = SLURM_SUCCESS;
+	pmixp_coll_ring_ctx_t *coll_ctx =
+			pmixp_coll_ring_ctx_shift(coll, pmixp_coll_seq);
 
-	assert(coll->ctx);
-	pmixp_coll_ring_ctx_t *coll_ctx = coll->ctx;
+	if (!coll_ctx) {
+		PMIXP_ERROR("Can not get ring collective context, "
+			    "seq=%u", pmixp_coll_seq);
+		goto exit;
+	}
 
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%d, size=%lu",

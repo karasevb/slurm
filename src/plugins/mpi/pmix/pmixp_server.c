@@ -808,6 +808,9 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
 
+		/* update collective seq */
+		coll->seq = pmixp_coll_seq;
+
 		PMIXP_DEBUG("FENCE collective message from nodeid = %u, "
 			    "type = %s, seq = %d",
 			    hdr->nodeid,
@@ -927,11 +930,11 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			break;
 		}
 
-		if (pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq)) {
+		if (!pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq)) {
 			/* no error, just reject */
 			char *nodename = pmixp_info_job_host(ring_hdr.nodeid);
 			PMIXP_DEBUG("Unexpected contrib from %s:%d: "
-				    "contrib_seq=%d, cur seq=%d, ",
+				    "contrib_seq=%d, cur seq=%d",
 				    nodename, ring_hdr.nodeid,
 				    ring_hdr.seq, pmixp_coll_seq);
 			xfree(nodename);

@@ -142,7 +142,7 @@ static inline void pmixp_coll_ring_sanity_check(pmixp_coll_ring_ctx_t *coll_ctx)
 int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 	     size_t nprocs, pmixp_coll_general_t *cinfo);
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll);
-int pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq);
+pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq);
 int pmixp_coll_ring_hdr_sanity_check(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr);
 int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata);
