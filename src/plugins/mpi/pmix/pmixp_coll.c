@@ -177,7 +177,7 @@ static void _reset_coll(pmixp_coll_t *coll)
 	case PMIXP_COLL_COLLECT:
 	case PMIXP_COLL_UPFWD:
 	case PMIXP_COLL_UPFWD_WSC:
-		coll->seq++;
+		coll->seq = ++pmixp_coll_seq;
 		coll->state = PMIXP_COLL_SYNC;
 		_reset_coll_ufwd(coll);
 		_reset_coll_dfwd(coll);
@@ -190,7 +190,7 @@ static void _reset_coll(pmixp_coll_t *coll)
 		 * next collective's data */
 	case PMIXP_COLL_DOWNFWD:
 		/* same with downward state */
-		coll->seq++;
+		coll->seq = ++pmixp_coll_seq;
 		_reset_coll_dfwd(coll);
 		if (coll->contrib_local || coll->contrib_children) {
 			/* next collective was already started */
@@ -847,7 +847,7 @@ static int _progress_dfwd(pmixp_coll_t *coll)
 		abort();
 	}
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: collective is DONE", coll);
+	PMIXP_DEBUG("%p: collective %d is DONE", coll, coll->seq);
 #endif
 	_reset_coll(coll);
 
@@ -902,6 +902,8 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
+
+	coll->seq = pmixp_coll_seq;
 
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%s, size=%zd",

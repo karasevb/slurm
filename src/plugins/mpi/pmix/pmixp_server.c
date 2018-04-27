@@ -1801,9 +1801,10 @@ static void _pmixp_cperf_cbfunc(int status,
 	if (pmixp_server_cperf_ring()) {
 		pmixp_coll_ring_ctx_t *coll_ctx =
 			(pmixp_coll_ring_ctx_t *) pmixp_coll_from_cbdata(r_cbdata);
-		lock = &coll_ctx->lock;
+		lock = &coll_ctx->coll->ctx_lock;
 	} else {
-		pmixp_coll_t *coll = pmixp_coll_from_cbdata(r_cbdata);
+		pmixp_coll_t *coll =
+				(pmixp_coll_t*) pmixp_coll_from_cbdata(r_cbdata);
 		lock = &coll->lock;
 	}
 	xassert(SLURM_SUCCESS == status);

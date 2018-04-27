@@ -214,6 +214,12 @@ void *pmixp_coll_from_cbdata(void *cbdata);
  */
 static inline int pmixp_coll_check_seq(pmixp_coll_t *coll, uint32_t seq)
 {
+	/* if coll not started get the new seq id */
+	if (!coll->contrib_local && (PMIXP_COLL_SYNC == coll->state)) {
+		if (coll->seq < seq) {
+			coll->seq = seq;
+		}
+	}
 	if (coll->seq == seq) {
 		/* accept this message */
 		return PMIXP_COLL_REQ_PROGRESS;

@@ -187,7 +187,6 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	ep->type = PMIXP_EP_NOIDEID;
 	ep->ep.nodeid = next_nodeid;
 
-
 	/* pack ring info */
 	_pack_coll_ring_info(coll, &hdr, buf);
 
@@ -350,7 +349,6 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
-		slurm_mutex_init(&coll_ctx->lock);
 	}
 #ifdef PMIXP_COLL_RING_DEBUG
 	PMIXP_DEBUG("%p: nprocs=%lu", coll, nprocs);
@@ -369,7 +367,6 @@ void pmixp_coll_ring_free(pmixp_coll_ring_t *coll)
 		coll_ctx = &coll->ctx_array[i];
 		free_buf(coll_ctx->ring_buf);
 		list_destroy(coll_ctx->fwrd_buf_pool);
-		slurm_mutex_destroy(&coll_ctx->lock);
 		xfree(coll_ctx->contrib_map);
 	}
 	slurm_mutex_destroy(&coll->ctx_lock);
@@ -380,13 +377,12 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 				  void *cbfunc, void *cbdata)
 {
 	int ret = SLURM_SUCCESS;
-	pmixp_coll_seq_t seq = pmixp_coll_seq++;
 	pmixp_coll_ring_ctx_t *coll_ctx =
-			pmixp_coll_ring_ctx_shift(coll, seq);
+			pmixp_coll_ring_ctx_shift(coll, pmixp_coll_seq++);
 
 	if (!coll_ctx) {
 		PMIXP_ERROR("Can not get ring collective context, "
-			    "seq=%u", seq);
+			    "seq=%u", coll_ctx->seq);
 		return SLURM_ERROR;
 	}
 
@@ -425,8 +421,11 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 	coll_ctx->contrib_local = true;
 
 	/* forward data to the next node */
-	ret = _ring_forward_data(coll_ctx, coll->my_peerid, 0,
-			   data, size);
+	if (coll->my_peerid != _ring_next_id(coll)) {
+		ret = _ring_forward_data(coll_ctx, coll->my_peerid, 0,
+					 data, size);
+	}
+
 	if (ret) {
 		PMIXP_ERROR("Can not forward ring data, seq=%u", coll_ctx->seq);
 		goto exit;
@@ -562,7 +561,6 @@ void pmixp_coll_ring_reset_if_to(pmixp_coll_ring_t *coll, time_t ts) {
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &coll->ctx_array[i];
 		if (PMIXP_COLL_RING_SYNC == coll_ctx->state) {
-			slurm_mutex_unlock(&coll->ctx_lock);
 			continue;
 		}
 		if (ts - coll_ctx->ts > pmixp_info_timeout()) {
