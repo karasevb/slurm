@@ -58,7 +58,6 @@ typedef struct {
 typedef uint32_t pmixp_coll_seq_t;
 
 extern pmixp_coll_seq_t pmixp_coll_seq;
-
 int pmixp_hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
 			      hostlist_t *hl_out);
 

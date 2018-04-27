@@ -178,7 +178,7 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 
 #ifdef PMIXP_COLL_RING_DEBUG
 	PMIXP_DEBUG("%p: transit data to nodeid=%d, seq=%d, hop=%d, size=%lu, contrib=%d",
-		    coll->ctx, next_nodeid, hdr.seq, hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
+		    coll_ctx, next_nodeid, hdr.seq, hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
 #endif
 	if (!buf) {
 		rc = SLURM_ERROR;
@@ -217,7 +217,8 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	coll_ctx->state = PMIXP_COLL_RING_SYNC;
 	coll_ctx->contrib_local = false;
 	coll_ctx->contrib_prev = 0;
-	memset(coll->ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
+	coll_ctx->ts = time(NULL);
+	memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 	set_buf_offset(coll_ctx->ring_buf, 0);
 }
 
@@ -226,10 +227,7 @@ static void _libpmix_cb(void *_vcbdata)
 	pmixp_coll_ring_cbdata_t *cbdata = (pmixp_coll_ring_cbdata_t*)_vcbdata;
 	pmixp_coll_ring_ctx_t *coll_ctx = cbdata->coll_ctx;
 
-	/* lock the collective */
-	slurm_mutex_lock(&coll_ctx->lock);
-
-	slurm_mutex_unlock(&coll_ctx->lock);
+	coll_ctx = coll_ctx;
 }
 static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 {
@@ -237,12 +235,12 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	pmixp_coll_ring_t *coll = _ctx_get_coll(coll_ctx);
 
 	assert(PMIXP_COLL_RING_STATE_MAGIC == coll->magic);
+	assert(coll_ctx->in_use);
 
 	do {
 		switch(coll_ctx->state) {
 			case PMIXP_COLL_RING_SYNC:
 				if (coll_ctx->contrib_local || coll_ctx->contrib_prev) {
-					coll_ctx->in_use = true;
 					coll_ctx->state = PMIXP_COLL_RING_COLLECT;
 					ret = true;
 				} else {
@@ -253,13 +251,13 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 				ret = false;
 				if (!coll_ctx->contrib_local) {
 					ret = false;
-				} else if ((coll->peers_cnt - 1) == coll->ctx->contrib_prev) {
+				} else if ((coll->peers_cnt - 1) == coll_ctx->contrib_prev) {
 					coll_ctx->state = PMIXP_COLL_RING_DONE;
 					ret = true;
 				}
 				break;
 			case PMIXP_COLL_RING_DONE:
-				PMIXP_ERROR("%p: ring collective seq=%d is done", coll_ctx, coll_ctx->seq);
+				PMIXP_ERROR("%p: ring collective seq=%d is DONE", coll_ctx, coll_ctx->seq);
 				ret = false;
 
 				if (coll->cbfunc) {
@@ -272,8 +270,6 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 							       coll->cbdata, _libpmix_cb, (void *)cbdata);
 				}
 				_reset_coll_ring(coll_ctx);
-				/* update global coll seq */
-				pmixp_coll_seq++;
 				break;
 			default:
 				PMIXP_ERROR("%p: unknown state = %d",
@@ -289,42 +285,31 @@ static void _forward_pool_free(void *p)
 	free_buf(buf);
 }
 
-pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const uint32_t seq)
+pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll,
+						 const uint32_t seq)
 {
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 
+	slurm_mutex_lock(&coll->ctx_lock);
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
-		slurm_mutex_lock(&coll->ctx_array[i].lock);
-		if (coll->ctx_array[i].in_use) {
-			if (seq == coll->ctx_array[i].seq) {
-				/* the correspond coll seq is found */
-				coll_ctx = &coll->ctx_array[i];
-				/* bind the CXT to coll */
-				coll->ctx = coll_ctx;
-				slurm_mutex_unlock(&coll->ctx_array[i].lock);
-				return coll_ctx;
+		coll_ctx = &coll->ctx_array[i];
+		if (coll_ctx->in_use) {
+			if (coll_ctx->seq == seq) {
+				goto exit;
 			}
-		}
-		slurm_mutex_unlock(&coll->ctx_array[i].lock);
-	}
-	/* this coll seq wasn't found and that isn't old coll seq */
-	if (!coll_ctx && (seq >= pmixp_coll_seq)) {
-		/* find the free coll ctx */
-		for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
-			slurm_mutex_lock(&coll->ctx_array[i].lock);
-			if (!coll->ctx_array[i].in_use) {
-				coll_ctx = &coll->ctx_array[i];
-				coll_ctx->in_use = true;
-				coll_ctx->seq = seq;
-				/* bind the CXT to coll */
-				coll->ctx = coll_ctx;
-				slurm_mutex_unlock(&coll->ctx_array[i].lock);
-				return coll_ctx;
-			}
-			slurm_mutex_unlock(&coll->ctx_array[i].lock);
+			continue;
+		} else {
+			/* new ctx */
+			coll_ctx->seq = seq;
+			/* mark it as used */
+			coll_ctx->in_use = true;
+			goto exit;
 		}
 	}
+exit:
+	slurm_mutex_unlock(&coll->ctx_lock);
+
 	return coll_ctx;
 }
 
@@ -345,8 +330,7 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		goto err_exit;
 	}
 	coll->cinfo = cinfo;
-	coll->ctx_cur = 0;
-	coll->ctx = &coll->ctx_array[coll->ctx_cur];
+	slurm_mutex_init(&coll->ctx_lock);
 	coll->peers_cnt = hostlist_count(hl);
 	coll->my_peerid = hostlist_find(hl, pmixp_info_hostname());
 	hostlist_destroy(hl);
@@ -362,14 +346,14 @@ int pmixp_coll_ring_init(pmixp_coll_ring_t *coll, const pmixp_proc_t *procs,
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
-	coll_ctx->fwrd_buf_pool = list_create(_forward_pool_free);
+		coll_ctx->fwrd_buf_pool = list_create(_forward_pool_free);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 		slurm_mutex_init(&coll_ctx->lock);
 	}
 #ifdef PMIXP_COLL_RING_DEBUG
-	PMIXP_DEBUG("%p: nprocs=%lu", coll->ctx, nprocs);
+	PMIXP_DEBUG("%p: nprocs=%lu", coll, nprocs);
 #endif
 	return SLURM_SUCCESS;
 err_exit:
@@ -388,38 +372,38 @@ void pmixp_coll_ring_free(pmixp_coll_ring_t *coll)
 		slurm_mutex_destroy(&coll_ctx->lock);
 		xfree(coll_ctx->contrib_map);
 	}
+	slurm_mutex_destroy(&coll->ctx_lock);
+
 }
 
 int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata)
 {
 	int ret = SLURM_SUCCESS;
+	pmixp_coll_seq_t seq = pmixp_coll_seq++;
 	pmixp_coll_ring_ctx_t *coll_ctx =
-			pmixp_coll_ring_ctx_shift(coll, pmixp_coll_seq);
+			pmixp_coll_ring_ctx_shift(coll, seq);
 
 	if (!coll_ctx) {
 		PMIXP_ERROR("Can not get ring collective context, "
-			    "seq=%u", pmixp_coll_seq);
-		goto exit;
+			    "seq=%u", seq);
+		return SLURM_ERROR;
 	}
 
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%d, size=%lu",
-		    coll->ctx, coll_ctx->seq, coll_ctx->state, size);
+		    coll_ctx, coll_ctx->seq, coll_ctx->state, size);
 #endif
 	/* sanity check */
 	pmixp_coll_ring_sanity_check(coll_ctx);
 
 	/* lock the structure */
-	slurm_mutex_lock(&coll->ctx->lock);
-
-	/* assign the coll sequence */
-	coll_ctx->seq = pmixp_coll_seq;
+	slurm_mutex_lock(&coll->ctx_lock);
 
 	/* change the state */
 	coll_ctx->ts = time(NULL);
 
-	if (coll->ctx->contrib_local) {
+	if (coll_ctx->contrib_local) {
 		/* Double contribution - there is no error, just reject*/
 		PMIXP_DEBUG("Double contribution detected");
 		goto exit;
@@ -456,7 +440,7 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t si
 
 exit:
 	/* unlock the structure */
-	slurm_mutex_unlock(&coll_ctx->lock);
+	slurm_mutex_unlock(&coll->ctx_lock);
 	return ret;
 }
 
@@ -473,13 +457,13 @@ int pmixp_coll_ring_hdr_sanity_check(pmixp_coll_ring_t *coll, pmixp_coll_ring_ms
 	return SLURM_SUCCESS;
 }
 
-int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
+int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_ctx_t *coll_ctx, pmixp_coll_ring_msg_hdr_t *hdr,
 				 Buf buf)
 {
 	int ret = SLURM_SUCCESS;
 	size_t size = hdr->msgsize;
 	char *data_src = NULL, *data_dst = NULL;
-	pmixp_coll_ring_ctx_t *coll_ctx = coll->ctx;
+	pmixp_coll_ring_t *coll = coll_ctx->coll;
 	uint32_t expexted_seq;
 
 #ifdef PMIXP_COLL_DEBUG
@@ -489,7 +473,7 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 		    hdr->contrib_id, hdr->hop_seq, size);
 #endif
 	/* lock the structure */
-	slurm_mutex_lock(&coll->ctx->lock);
+	slurm_mutex_lock(&coll->ctx_lock);
 
 	/* change the state */
 	coll_ctx->ts = time(NULL);
@@ -521,14 +505,18 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 
 	if (coll_ctx->contrib_map[hdr->contrib_id]) {
 #ifdef PMIXP_COLL_RING_DEBUG
-		PMIXP_DEBUG("%p: double receiving was detected from %d, rejected",
-			    coll_ctx, hdr->contrib_id);
+		PMIXP_DEBUG("%p: double receiving was detected from %d, seq=%d, ",
+			    coll_ctx, coll_ctx->seq, hdr->contrib_id);
 #endif
 		goto exit;
 	}
 
 	/* mark number of individual contributions */
 	coll_ctx->contrib_map[hdr->contrib_id] = true;
+#ifdef PMIXP_COLL_RING_DEBUG
+	PMIXP_DEBUG("%p: set contrib map seq=%d, nodeid=%d",
+		    coll_ctx, coll_ctx->seq, hdr->contrib_id);
+#endif
 
 	/* save contribution */
 	if (!size_buf(coll_ctx->ring_buf)) {
@@ -561,31 +549,34 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hd
 	_progress_coll_ring(coll_ctx);
 exit:
 	/* unlock the structure */
-	slurm_mutex_unlock(&coll_ctx->lock);
+	slurm_mutex_unlock(&coll->ctx_lock);
 	return ret;
 }
 
 void pmixp_coll_ring_reset_if_to(pmixp_coll_ring_t *coll, time_t ts) {
-	pmixp_coll_ring_ctx_t *coll_ctx = coll->ctx;
+	pmixp_coll_ring_ctx_t *coll_ctx;
+	int i;
 
 	/* lock the structure */
-	slurm_mutex_lock(&coll_ctx->lock);
-
-	if (PMIXP_COLL_RING_SYNC == coll->ctx->state) {
-		slurm_mutex_unlock(&coll_ctx->lock);
-		return;
-	}
-	if (ts - coll_ctx->ts > pmixp_info_timeout()) {
-		/* respond to the libpmix */
-		if (coll->ctx->contrib_local && coll->cbfunc) {
-			pmixp_lib_modex_invoke(coll->cbfunc, PMIXP_ERR_TIMEOUT, NULL,
-					       0, coll->cbdata, NULL, NULL);
+	slurm_mutex_lock(&coll->ctx_lock);
+	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+		coll_ctx = &coll->ctx_array[i];
+		if (PMIXP_COLL_RING_SYNC == coll_ctx->state) {
+			slurm_mutex_unlock(&coll->ctx_lock);
+			continue;
 		}
-		/* drop the collective */
-		_reset_coll_ring(coll_ctx);
-		/* report the timeout event */
-		PMIXP_ERROR("Collective timeout!");
+		if (ts - coll_ctx->ts > pmixp_info_timeout()) {
+			/* respond to the libpmix */
+			if (coll_ctx->contrib_local && coll->cbfunc) {
+				pmixp_lib_modex_invoke(coll->cbfunc, PMIXP_ERR_TIMEOUT, NULL,
+						       0, coll->cbdata, NULL, NULL);
+			}
+			/* drop the collective */
+			_reset_coll_ring(coll_ctx);
+			/* report the timeout event */
+			PMIXP_ERROR("Collective timeout!");
+		}
 	}
 	/* unlock the structure */
-	slurm_mutex_unlock(&coll_ctx->lock);
+	slurm_mutex_unlock(&coll->ctx_lock);
 }

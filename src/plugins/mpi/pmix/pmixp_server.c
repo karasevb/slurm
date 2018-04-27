@@ -808,9 +808,6 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		coll = pmixp_state_coll_get(type, procs, nprocs);
 		xfree(procs);
 
-		/* update collective seq */
-		coll->seq = pmixp_coll_seq;
-
 		PMIXP_DEBUG("FENCE collective message from nodeid = %u, "
 			    "type = %s, seq = %d",
 			    hdr->nodeid,
@@ -895,6 +892,7 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		size_t nprocs = 0;
 		pmixp_coll_ring_msg_hdr_t ring_hdr;
 		pmixp_coll_type_t type = 0;
+		pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 
 		if (pmixp_coll_ring_unpack_info(buf, &type, &ring_hdr,
 						&procs, &nprocs)) {
@@ -921,27 +919,28 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		}
 #ifdef PMIXP_COLL_RING_DEBUG
 		PMIXP_DEBUG("FENCE_RING collective message from nodeid=%u, "
-			    "contrib_id=%u, hop_seq=%u, msgsize=%lu, ring_hdr=%lu",
+			    "contrib_id=%u, seq=%u, hop=%u, msgsize=%lu",
 			    hdr->nodeid, ring_hdr.contrib_id,
-			    ring_hdr.hop_seq, ring_hdr.msgsize, sizeof(ring_hdr));
+			    ring_hdr.seq, ring_hdr.hop_seq, ring_hdr.msgsize);
 #endif
 		if (pmixp_coll_ring_hdr_sanity_check(coll, &ring_hdr)) {
 			/* no error, just reject */
 			break;
 		}
 
-		if (!pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq)) {
+		if (!(coll_ctx = pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq))) {
 			/* no error, just reject */
 			char *nodename = pmixp_info_job_host(ring_hdr.nodeid);
 			PMIXP_DEBUG("Unexpected contrib from %s:%d: "
-				    "contrib_seq=%d, cur seq=%d",
+				    "contrib_seq=%d",
 				    nodename, ring_hdr.nodeid,
-				    ring_hdr.seq, pmixp_coll_seq);
+				    ring_hdr.seq);
 			xfree(nodename);
+			pmixp_debug_hang(1);
 			break;
 		}
 
-		pmixp_coll_ring_contrib_prev(coll, &ring_hdr, buf);
+		pmixp_coll_ring_contrib_prev(coll_ctx, &ring_hdr, buf);
 		break;
 	}
 	default:

@@ -90,8 +90,7 @@ typedef struct pmixp_coll_ring_s {
 	pmixp_coll_general_t *cinfo;
 
 	/* coll contexts data */
-	uint32_t ctx_cur;
-	pmixp_coll_ring_ctx_t *ctx;
+	pthread_mutex_t ctx_lock;
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
 
 	/* libpmix callback data */
@@ -146,7 +145,7 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_ring_t *coll, const 
 int pmixp_coll_ring_hdr_sanity_check(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr);
 int pmixp_coll_ring_contrib_local(pmixp_coll_ring_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata);
-int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
+int pmixp_coll_ring_contrib_prev(pmixp_coll_ring_ctx_t *coll_ctx, pmixp_coll_ring_msg_hdr_t *hdr,
 				 Buf buf);
 void pmixp_coll_ring_reset(pmixp_coll_ring_ctx_t *coll);
 int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
