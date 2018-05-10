@@ -114,8 +114,10 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 	if (info) {
 		for (i = 0; i < ninfo; i++) {
 			if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
-				use_ring_coll = true;
-
+				if (pmixp_info_srv_direct_conn()) {
+					/* use the ring coll with dconn only */
+					use_ring_coll = true;
+				}
 			}
 		}
 	}
