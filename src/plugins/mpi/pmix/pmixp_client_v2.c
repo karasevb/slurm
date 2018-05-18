@@ -108,31 +108,38 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 	int ret;
 	size_t i;
 	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
-	bool use_ring_coll = false;
+	pmixp_coll_type_t coll_type = PMIXP_COLL_TYPE_FENCE;
+	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
 
-	/* check the info keys */
-	if (info) {
-		for (i = 0; i < ninfo; i++) {
-			if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
-				if (pmixp_info_srv_direct_conn()) {
-					/* use the ring coll with dconn only */
-					use_ring_coll = true;
+	switch (fence_type) {
+	case PMIXP_FENCE_RING:
+		coll_type = PMIXP_COLL_TYPE_FENCE_RING;
+		break;
+	case PMIXP_FENCE_TREE:
+		coll_type = PMIXP_COLL_TYPE_FENCE;
+		break;
+	default:
+		/* check the info keys */
+		if (info) {
+			for (i = 0; i < ninfo; i++) {
+				if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
+					if (pmixp_info_srv_direct_conn()) {
+						/* use the ring coll with dconn only */
+						coll_type = PMIXP_COLL_TYPE_FENCE_RING;
+					}
 				}
 			}
 		}
+		break;
 	}
-#ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("use_ring_fence=%d", use_ring_coll);
-#endif
-
 	for (i = 0; i < nprocs; i++) {
 		procs[i].rank = procs_v2[i].rank;
 		strncpy(procs[i].nspace, procs_v2[i].nspace, PMIXP_MAX_NSLEN);
 	}
 
-	if (use_ring_coll) {
+	if (PMIXP_COLL_TYPE_FENCE_RING == coll_type) {
 		pmixp_coll_ring_t *coll;
-		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING, procs, nprocs);
+		coll = pmixp_state_coll_get(coll_type, procs, nprocs);
 		if (!coll) {
 			ret = SLURM_ERROR;
 			goto exit;
@@ -140,7 +147,7 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 		ret = pmixp_coll_ring_contrib_local(coll, data, ndata, cbfunc, cbdata);
 	} else {
 		pmixp_coll_t *coll;
-		coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE, procs, nprocs);
+		coll = pmixp_state_coll_get(coll_type, procs, nprocs);
 		if (!coll) {
 			ret = SLURM_ERROR;
 			goto exit;

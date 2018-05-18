@@ -256,7 +256,7 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 				}
 				break;
 			case PMIXP_COLL_RING_DONE:
-				PMIXP_ERROR("%p: ring collective seq=%d is DONE", coll_ctx, coll_ctx->seq);
+				PMIXP_DEBUG("%p: ring collective seq=%d is DONE", coll_ctx, coll_ctx->seq);
 				ret = false;
 
 				if (coll->cbfunc) {

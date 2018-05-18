@@ -52,6 +52,8 @@ static bool _srv_use_direct_conn_ucx = true;
 static bool _srv_use_direct_conn_ucx = false;
 #endif
 
+static int _srv_fence_coll_type = PMIXP_FENCE_AUTO;
+
 pmix_jobinfo_t _pmixp_job_info;
 
 static int _resources_set(char ***env);
@@ -93,6 +95,10 @@ bool pmixp_info_srv_direct_conn_early(void){
 
 bool pmixp_info_srv_direct_conn_ucx(void){
 	return _srv_use_direct_conn_ucx && _srv_use_direct_conn;
+}
+
+int pmixp_info_srv_fence_coll_type(void){
+	return _srv_fence_coll_type;
 }
 
 /* Job information */
@@ -442,6 +448,17 @@ static int _env_set(char ***env)
 		} else if (!xstrcmp("0", p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
 			_srv_use_direct_conn_early = false;
+		}
+	}
+	/*------------- Fence coll type setting ----------*/
+	p = getenvp(*env, PMIXP_COLL_FENCE);
+	if (p) {
+		if (!xstrcmp("auto", p)) {
+			_srv_fence_coll_type = PMIXP_FENCE_AUTO;
+		} else if (!xstrcmp("tree", p)) {
+			_srv_fence_coll_type = PMIXP_FENCE_TREE;
+		} else if (!xstrcmp("ring", p)) {
+			_srv_fence_coll_type = PMIXP_FENCE_RING;
 		}
 	}
 

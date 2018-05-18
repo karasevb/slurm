@@ -148,6 +148,8 @@
 /* The bound after which message is considered large */
 #define PMIXP_CPERF_BOUND "SLURM_PMIX_COLL_PERF_LARGE_PWR2"
 
+#define PMIXP_COLL_FENCE "SLURM_PMIXP_FENCE"
+
 typedef enum {
 	PMIXP_P2P_INLINE,
 	PMIXP_P2P_REGULAR
