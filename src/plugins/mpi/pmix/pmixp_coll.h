@@ -190,10 +190,7 @@ typedef struct {
 typedef struct {
 	/* coll contexts data */
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
-
-	/* libpmix callback data */
-	void *cbfunc;
-	void *cbdata;
+	//List fwrd_buf_pool;
 } pmixp_coll_ring_t;
 
 typedef struct {
@@ -303,10 +300,10 @@ int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
 		pmixp_coll_ring_msg_hdr_t *ring_hdr,
 		pmixp_proc_t **r, size_t *nr);
 void pmixp_coll_ring_reset_if_to(pmixp_coll_t  *coll, time_t ts);
-pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_t *coll,
+pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 						 const uint32_t seq);
 void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx);
-
+pmixp_coll_t *pmixp_coll_ring_from_cbdata(void *cbdata);
 
 
 static inline void pmixp_coll_sanity_check(pmixp_coll_t *coll)

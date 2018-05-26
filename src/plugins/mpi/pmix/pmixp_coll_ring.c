@@ -74,6 +74,17 @@ static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 	list_push(coll_ctx->fwrd_buf_pool, cbdata->buf);
 }
 
+/*
+ * use it for internal collective
+ * performance evaluation tool.
+ */
+pmixp_coll_t *pmixp_coll_ring_from_cbdata(void *cbdata)
+{
+	pmixp_coll_ring_cbdata_t *ptr = (pmixp_coll_ring_cbdata_t*)cbdata;
+	pmixp_coll_sanity_check(ptr->coll_ctx->coll);
+	return ptr->coll_ctx->coll;
+}
+
 int pmixp_coll_ring_unpack_info(Buf buf, pmixp_coll_type_t *type,
 				pmixp_coll_ring_msg_hdr_t *ring_hdr,
 				pmixp_proc_t **r, size_t *nr)
@@ -225,18 +236,6 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	coll->ts = time(NULL);
 	memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 	set_buf_offset(coll_ctx->ring_buf, 0);
-
-#ifdef PMIXP_COLL_RING_DEBUG
-	{
-		int i;
-		pmixp_coll_ring_ctx_t *ctx = NULL;
-		for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
-			ctx = &coll->state.ring.ctx_array[i];
-			PMIXP_DEBUG("%p [%d]: use=%d, local=%d, prev=%d, seq=%d",
-				    ctx, i, ctx->in_use, ctx->contrib_local, ctx->contrib_prev, ctx->seq);
-		}
-	}
-#endif
 }
 
 static void _libpmix_cb(void *_vcbdata)
@@ -302,6 +301,7 @@ void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx)
 				    pmixp_coll_type2str(coll->type), coll_ctx->seq);
 			ret = false;
 			coll->seq++;
+
 			if (coll->cbfunc) {
 				pmixp_coll_ring_cbdata_t *cbdata;
 				cbdata = xmalloc(sizeof(pmixp_coll_ring_cbdata_t));
@@ -327,7 +327,7 @@ static void _forward_pool_free(void *p)
 	free_buf(buf);
 }
 
-pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_t *coll,
+pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 						 const uint32_t seq)
 {
 	int i;
@@ -408,7 +408,7 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 	coll->cbfunc = cbfunc;
 	coll->cbdata = cbdata;
 
-	coll_ctx = pmixp_coll_ring_ctx_shift(coll, coll->seq);
+	coll_ctx = pmixp_coll_ring_ctx_select(coll, coll->seq);
 	if (!coll_ctx) {
 		PMIXP_ERROR("Can not get ring collective context, "
 			    "seq=%u", coll->seq);
@@ -483,7 +483,7 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_t *coll, pmixp_coll_ring_msg_hdr_t *
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
 
-	coll_ctx = pmixp_coll_ring_ctx_shift(coll, hdr->seq);
+	coll_ctx = pmixp_coll_ring_ctx_select(coll, hdr->seq);
 	if (!coll_ctx) {
 		PMIXP_ERROR("Can not get ring collective context, "
 			    "seq=%u", hdr->seq);
@@ -526,20 +526,16 @@ int pmixp_coll_ring_contrib_prev(pmixp_coll_t *coll, pmixp_coll_ring_msg_hdr_t *
 	}
 
 	if (coll_ctx->contrib_map[hdr->contrib_id]) {
-#ifdef PMIXP_COLL_RING_DEBUG
-		PMIXP_DEBUG("%p: double receiving was detected from %d, local seq=%d, seq=%d",
+#ifdef PMIXP_COLL_DEBUG
+		PMIXP_DEBUG("%p: double receiving was detected from %d, "
+			    "local seq=%d, seq=%d, rejected",
 			    coll, hdr->contrib_id, coll->seq, hdr->seq);
-		xassert(0);
 #endif
 		goto exit;
 	}
 
 	/* mark number of individual contributions */
 	coll_ctx->contrib_map[hdr->contrib_id] = true;
-#ifdef PMIXP_COLL_RING_DEBUG
-	PMIXP_DEBUG("%p: set contrib map seq=%d, nodeid=%d",
-		    coll, coll->seq, hdr->contrib_id);
-#endif
 
 	/* save contribution */
 	if (!size_buf(coll_ctx->ring_buf)) {

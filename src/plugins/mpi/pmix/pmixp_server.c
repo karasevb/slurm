@@ -929,7 +929,7 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			break;
 		}
 
-		if (!(coll_ctx = pmixp_coll_ring_ctx_shift(coll, ring_hdr.seq))) {
+		if (!(coll_ctx = pmixp_coll_ring_ctx_select(coll, ring_hdr.seq))) {
 			/* no error, just reject */
 			char *nodename = pmixp_info_job_host(ring_hdr.nodeid);
 			PMIXP_DEBUG("Unexpected contrib from %s:%d: "
@@ -1777,18 +1777,9 @@ bool pmixp_server_want_cperf()
 	return _pmixp_cperf_on;
 }
 
-static void _pmixp_cperf_cbfunc(int status,
-				const char *data, size_t ndata,
-				void *cbdata,
-				void *r_fn,
-				void *r_cbdata)
+inline static void _pmixp_cperf_cbfunc(pmixp_coll_t *coll,
+				       void *r_fn, void *r_cbdata)
 {
-	/* small violation - we kinow what is the type of release
-	 * data and will use that knowledge to avoid the deadlock
-	 */
-	pmixp_coll_t *coll = pmixp_coll_tree_from_cbdata(r_cbdata);
-	xassert(SLURM_SUCCESS == status);
-
 	/*
 	 * we will be called with mutex locked.
 	 * need to unlock it so that callback won't
@@ -1806,19 +1797,69 @@ static void _pmixp_cperf_cbfunc(int status,
 	_pmixp_server_cperf_inc();
 }
 
+static void _pmixp_cperf_tree_cbfunc(int status, const char *data,
+				     size_t ndata, void *cbdata,
+				     void *r_fn, void *r_cbdata)
+{
+	/* small violation - we kinow what is the type of release
+	 * data and will use that knowledge to avoid the deadlock
+	 */
+	pmixp_coll_t *coll = pmixp_coll_tree_from_cbdata(r_cbdata);
+	xassert(SLURM_SUCCESS == status);
+	_pmixp_cperf_cbfunc(coll, r_fn, r_cbdata);
+}
+
+static void _pmixp_cperf_ring_cbfunc(int status, const char *data,
+				     size_t ndata, void *cbdata,
+				     void *r_fn, void *r_cbdata)
+{
+	/* small violation - we kinow what is the type of release
+	 * data and will use that knowledge to avoid the deadlock
+	 */
+	pmixp_coll_t *coll = pmixp_coll_ring_from_cbdata(r_cbdata);
+	xassert(SLURM_SUCCESS == status);
+	_pmixp_cperf_cbfunc(coll, r_fn, r_cbdata);
+}
+
+typedef void (*pmixp_cperf_cbfunc_fn_t)(int status, const char *data,
+					size_t ndata, void *cbdata,
+					void *r_fn, void *r_cbdata);
 
 static int _pmixp_server_cperf_iter(char *data, int ndata)
 {
 	pmixp_coll_t *coll;
 	pmixp_proc_t procs;
 	int cur_count = _pmixp_server_cperf_count();
+	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
+	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
+	pmixp_cperf_cbfunc_fn_t cperf_cbfun = _pmixp_cperf_tree_cbfunc;
 
 	strncpy(procs.nspace, pmixp_info_namespace(), PMIXP_MAX_NSLEN);
 	procs.rank = pmixp_lib_get_wildcard();
 
-	coll = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE, &procs, 1);
-	xassert(!pmixp_coll_tree_contrib_local(coll, data, ndata,
-					  _pmixp_cperf_cbfunc, NULL));
+	PMIXP_DEBUG("%s", pmixp_coll_type2str(type));
+
+	if (PMIXP_FENCE_AUTO == fence_type) {
+		fence_type = cur_count%2 ? PMIXP_FENCE_TREE :
+					   PMIXP_FENCE_RING;
+	}
+
+	switch (fence_type) {
+	case PMIXP_FENCE_RING:
+		type = PMIXP_COLL_TYPE_FENCE_RING;
+		cperf_cbfun = _pmixp_cperf_ring_cbfunc;
+		break;
+	case PMIXP_FENCE_TREE:
+	default:
+		type = PMIXP_COLL_TYPE_FENCE;
+		cperf_cbfun = _pmixp_cperf_tree_cbfunc;
+		break;
+	}
+
+	coll = pmixp_state_coll_get(type, &procs, 1);
+	pmixp_coll_sanity_check(coll);
+	xassert(!pmixp_coll_contrib_local(coll, type, data, ndata,
+					  cperf_cbfun, NULL));
 
 	while (cur_count == _pmixp_server_cperf_count()) {
 		usleep(1);
