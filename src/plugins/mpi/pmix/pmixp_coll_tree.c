@@ -914,7 +914,7 @@ static int _progress_dfwd(pmixp_coll_t *coll)
 		abort();
 	}
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: %s seq=%d is DONE", coll,
+	PMIXP_ERROR("%p: %s seq=%d is DONE", coll,
 		    pmixp_coll_type2str(coll->type), coll->seq);
 #endif
 	_reset_coll(coll);

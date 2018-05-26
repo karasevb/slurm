@@ -298,7 +298,7 @@ void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx)
 			}
 			break;
 		case PMIXP_COLL_RING_DONE:
-			PMIXP_DEBUG("%p: %s seq=%d is DONE", coll,
+			PMIXP_ERROR("%p: %s seq=%d is DONE", coll,
 				    pmixp_coll_type2str(coll->type), coll_ctx->seq);
 			ret = false;
 			coll->seq++;
