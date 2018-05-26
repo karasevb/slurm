@@ -268,8 +268,7 @@ typedef struct pmixp_coll_s {
 } pmixp_coll_t;
 
 /* tree coll functions*/
-int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs);
+int pmixp_coll_tree_init(pmixp_coll_t *coll, hostlist_t *hl);
 void pmixp_coll_tree_free(pmixp_coll_t *coll);
 
 pmixp_coll_t *pmixp_coll_tree_from_cbdata(void *cbdata);
@@ -292,8 +291,7 @@ void pmixp_coll_tree_reset_if_to(pmixp_coll_t *coll, time_t ts);
 inline int pmixp_coll_tree_check_seq(pmixp_coll_t *coll, uint32_t seq);
 
 /* ring coll functions */
-int pmixp_coll_ring_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-	     size_t nprocs);
+int pmixp_coll_ring_init(pmixp_coll_t *coll);
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll_ring);
 int pmixp_coll_ring_hdr_sanity_check(pmixp_coll_t  *coll, pmixp_coll_ring_msg_hdr_t *hdr);
 int pmixp_coll_ring_contrib_local(pmixp_coll_t  *coll, char *data, size_t size,

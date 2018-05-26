@@ -37,7 +37,6 @@
 #include "pmixp_common.h"
 #include "src/common/slurm_protocol_api.h"
 #include "pmixp_coll.h"
-#include "pmixp_coll_ring.h"
 #include "pmixp_nspaces.h"
 #include "pmixp_server.h"
 #include "pmixp_client.h"
@@ -333,7 +332,7 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_t *coll,
 {
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL, *ret = NULL;
-	pmicp_coll_ring_t *ring = &coll->state.ring;
+	pmixp_coll_ring_t *ring = &coll->state.ring;
 
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
@@ -351,21 +350,12 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_shift(pmixp_coll_t *coll,
 	return ret;
 }
 
-int pmixp_coll_ring_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs)
+int pmixp_coll_ring_init(pmixp_coll_t *coll)
 {
 	PMIXP_DEBUG("called");
 	int i;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
-	hostlist_t hl;
 	pmixp_coll_ring_t *ring = &coll->state.ring;
-
-	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
-		/* TODO: provide ranges output routine */
-		PMIXP_ERROR("Bad ranges information");
-		goto err_exit;
-	}
-	hostlist_destroy(hl);
 
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
@@ -384,8 +374,6 @@ int pmixp_coll_ring_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 	PMIXP_DEBUG("%p: nprocs=%lu", coll, nprocs);
 #endif
 	return SLURM_SUCCESS;
-err_exit:
-	return SLURM_ERROR;
 }
 
 void pmixp_coll_ring_free(pmixp_coll_ring_t *coll_ring)
@@ -406,13 +394,15 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata)
 {
 	int ret = SLURM_SUCCESS;
-	pmixp_coll_ring_t *ring = &coll->state.ring;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 
 	PMIXP_DEBUG("called");
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
+
+	/* sanity check */
+	pmixp_coll_sanity_check(coll);
 
 	/* setup callback info */
 	coll->cbfunc = cbfunc;
@@ -430,9 +420,6 @@ int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%d, size=%lu",
 		    coll_ctx, coll_ctx->seq, coll_ctx->state, size);
 #endif
-	/* sanity check */
-	pmixp_coll_ring_sanity_check(coll_ctx);
-
 	/* change the state */
 	coll->ts = time(NULL);
 
@@ -616,5 +603,3 @@ void pmixp_coll_ring_reset_if_to(pmixp_coll_t *coll, time_t ts) {
 	/* unlock the structure */
 	slurm_mutex_unlock(&coll->lock);
 }
-
-#endif

@@ -291,10 +291,8 @@ static void _reset_coll(pmixp_coll_t *coll)
 /*
  * Based on ideas provided by Hongjia Cao <hjcao@nudt.edu.cn> in PMI2 plugin
  */
-int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs)
+int pmixp_coll_tree_init(pmixp_coll_t *coll, hostlist_t *hl)
 {
-	hostlist_t hl;
 	int max_depth, width, depth, i;
 	char *p;
 	pmixp_coll_tree_t *tree = NULL;
@@ -302,26 +300,12 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 	tree = &coll->state.tree;
 	tree->state = PMIXP_COLL_TREE_SYNC;
 
-	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
-		/* TODO: provide ranges output routine */
-		PMIXP_ERROR("Bad ranges information");
-		goto err_exit;
-	}
-#ifdef PMIXP_COLL_DEBUG
-	/* if we debug collectives - store a copy of a full
-	 * hostlist to resolve participant id to the hostname */
-	coll->peers_hl = hostlist_copy(hl);
-#endif
-
 	width = slurm_get_tree_width();
-	coll->peers_cnt = hostlist_count(hl);
-	coll->my_peerid = hostlist_find(hl, pmixp_info_hostname());
 	reverse_tree_info(coll->my_peerid, coll->peers_cnt, width,
 			  &tree->prnt_peerid, &tree->chldrn_cnt, &depth,
 			  &max_depth);
 
 	/* We interested in amount of direct childs */
-	coll->seq = 0;
 	tree->contrib_children = 0;
 	tree->contrib_local = false;
 	tree->chldrn_ids = xmalloc(sizeof(int) * width);
@@ -337,7 +321,7 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 		 * ourselfs there)
 		 */
 		tree->prnt_host = NULL;
-		tree->all_chldrn_hl = hostlist_copy(hl);
+		tree->all_chldrn_hl = hostlist_copy(*hl);
 		hostlist_delete_host(tree->all_chldrn_hl,
 				     pmixp_info_hostname());
 		tree->chldrn_str =
@@ -351,7 +335,7 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 		/*
 		 * setup parent id's
 		 */
-		p = hostlist_nth(hl, tree->prnt_peerid);
+		p = hostlist_nth(*hl, tree->prnt_peerid);
 		tree->prnt_host = xstrdup(p);
 		free(p);
 		/* reset prnt_peerid to the global peer */
@@ -361,7 +345,7 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 		 * setup root id's
 		 * (we need this for the Slurm API communication case)
 		 */
-		p = hostlist_nth(hl, 0);
+		p = hostlist_nth(*hl, 0);
 		tree->root_host = xstrdup(p);
 		free(p);
 		/* reset prnt_peerid to the global peer */
@@ -374,11 +358,10 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 
 	/* fixup children peer ids to te global ones */
 	for(i=0; i<tree->chldrn_cnt; i++){
-		p = hostlist_nth(hl, tree->chldrn_ids[i]);
+		p = hostlist_nth(*hl, tree->chldrn_ids[i]);
 		tree->chldrn_ids[i] = pmixp_info_job_hostid(p);
 		free(p);
 	}
-	hostlist_destroy(hl);
 
 	/* Collective state */
 	tree->ufwd_buf = pmixp_server_buf_new();
@@ -392,8 +375,6 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 	slurm_mutex_init(&coll->lock);
 
 	return SLURM_SUCCESS;
-err_exit:
-	return SLURM_ERROR;
 }
 
 void pmixp_coll_tree_free(pmixp_coll_t *coll)

@@ -100,7 +100,9 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 		    const pmixp_proc_t *procs, size_t nprocs)
 {
 	int rc = SLURM_SUCCESS;
+	hostlist_t hl;
 
+	coll->seq = 0;
 #ifndef NDEBUG
 	coll->magic = PMIXP_COLL_STATE_MAGIC;
 #endif
@@ -109,17 +111,36 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 	coll->pset.nprocs = nprocs;
 	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
 
+	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
+		/* TODO: provide ranges output routine */
+		PMIXP_ERROR("Bad ranges information");
+		rc = SLURM_ERROR;
+		goto exit;
+	}
+	coll->peers_cnt = hostlist_count(hl);
+	coll->my_peerid = hostlist_find(hl, pmixp_info_hostname());
+#ifdef PMIXP_COLL_DEBUG
+	/* if we debug collectives - store a copy of a full
+	 * hostlist to resolve participant id to the hostname */
+	coll->peers_hl = hostlist_copy(hl);
+#endif
+
 	switch(type) {
 	case PMIXP_COLL_TYPE_FENCE:
-		rc = pmixp_coll_ring_init(coll, procs, nprocs);
+		rc = pmixp_coll_tree_init(coll, &hl);
 		break;
 	case PMIXP_COLL_TYPE_FENCE_RING:
-		rc = pmixp_coll_tree_init(coll, procs, nprocs);
+		rc = pmixp_coll_ring_init(coll);
 		break;
 	default:
 		rc = SLURM_FAILURE;
 	}
+	hostlist_destroy(hl);
 
+	if (rc) {
+		goto exit;
+	}
 
+exit:
 	return rc;
 }
