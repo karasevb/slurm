@@ -48,8 +48,7 @@ pmixp_state_t _pmixp_state;
 void _xfree_coll(void *x)
 {
 	pmixp_coll_t *coll = (pmixp_coll_t *)x;
-	pmixp_coll_tree_free(coll);
-	xfree(coll);
+	pmixp_coll_free(coll);
 }
 
 int pmixp_state_init(void)
@@ -138,7 +137,7 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 	 * concurent thread already created it while we were doing the
 	 * first search */
 
-	if (pmixp_coll_tree_belong_chk(type, procs, nprocs)) {
+	if (pmixp_coll_belong_chk(procs, nprocs)) {
 		return NULL;
 	}
 
@@ -150,7 +149,7 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 		 * structure right after that */
 		ret = xmalloc(sizeof(*ret));
 		/* initialize with unlocked list but locked element */
-		if (SLURM_SUCCESS != pmixp_coll_tree_init(ret, procs, nprocs)) {
+		if (SLURM_SUCCESS != pmixp_coll_init(ret, type, procs, nprocs)) {
 			if (ret->pset.procs) {
 				xfree(ret->pset.procs);
 			}
@@ -174,7 +173,16 @@ void pmixp_state_coll_cleanup(void)
 	/* Walk through the list looking for the collective descriptor */
 	it = list_iterator_create(_pmixp_state.coll);
 	while ((coll = list_next(it))) {
-		pmixp_coll_tree_reset_if_to(coll, ts);
+		switch (coll->type) {
+		case PMIXP_COLL_TYPE_FENCE_TREE:
+			pmixp_coll_tree_reset_if_to(coll, ts);
+			break;
+		case PMIXP_COLL_TYPE_FENCE_RING:
+			pmixp_coll_ring_reset_if_to(coll, ts);
+			break;
+		default:
+			PMIXP_ERROR("Unknown coll type");
+		}
 	}
 	list_iterator_destroy(it);
 }
