@@ -84,12 +84,10 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, pmixp_coll_type_t type,
 		ret = pmixp_coll_tree_contrib_local(coll, data,
 						    ndata, cbfunc, cbdata);
 		break;
-	/*
 	case PMIXP_COLL_TYPE_FENCE_RING:
 		ret = pmixp_coll_ring_contrib_local(coll, data,
 						    ndata, cbfunc, cbdata);
 		break;
-	*/
 	default:
 		ret = SLURM_FAILURE;
 		break;
@@ -103,8 +101,24 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 {
 	int rc = SLURM_SUCCESS;
 
+#ifndef NDEBUG
+	coll->magic = PMIXP_COLL_STATE_MAGIC;
+#endif
 	coll->type = type;
+	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
+	coll->pset.nprocs = nprocs;
+	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
 
+	switch(type) {
+	case PMIXP_COLL_TYPE_FENCE:
+		rc = pmixp_coll_ring_init(coll, procs, nprocs);
+		break;
+	case PMIXP_COLL_TYPE_FENCE_RING:
+		rc = pmixp_coll_tree_init(coll, procs, nprocs);
+		break;
+	default:
+		rc = SLURM_FAILURE;
+	}
 
 
 	return rc;

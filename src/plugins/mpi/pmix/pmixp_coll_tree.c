@@ -299,15 +299,8 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
 	char *p;
 	pmixp_coll_tree_t *tree = NULL;
 
-#ifndef NDEBUG
-	coll->magic = PMIXP_COLL_STATE_MAGIC;
-#endif
-	coll->type = PMIXP_COLL_TYPE_FENCE;
 	tree = &coll->state.tree;
 	tree->state = PMIXP_COLL_TREE_SYNC;
-	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
-	coll->pset.nprocs = nprocs;
-	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
 
 	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
 		/* TODO: provide ranges output routine */
@@ -443,7 +436,7 @@ typedef struct {
 pmixp_coll_t *pmixp_coll_tree_from_cbdata(void *cbdata)
 {
 	pmixp_coll_cbdata_t *ptr = (pmixp_coll_cbdata_t*)cbdata;
-	pmixp_coll_tree_sanity_check(ptr->coll);
+	pmixp_coll_sanity_check(ptr->coll);
 	return ptr->coll;
 }
 
@@ -608,8 +601,8 @@ static int _progress_collect(pmixp_coll_t *coll)
 		    coll, pmixp_coll_tree_state2str(tree->state),
 		    (int)tree->contrib_local, tree->contrib_children);
 #endif
-	/* lock the collective */
-	pmixp_coll_tree_sanity_check(coll);
+	/* sanity check */
+	pmixp_coll_sanity_check(coll);
 
 	if (PMIXP_COLL_TREE_COLLECT != tree->state) {
 		/* In case of race condition between libpmix and
@@ -995,7 +988,7 @@ int pmixp_coll_tree_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 	pmixp_debug_hang(0);
 
 	/* sanity check */
-	pmixp_coll_tree_sanity_check(coll);
+	pmixp_coll_sanity_check(coll);
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -1113,7 +1106,7 @@ int pmixp_coll_tree_contrib_child(pmixp_coll_t *coll, uint32_t peerid,
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
-	pmixp_coll_tree_sanity_check(coll);
+	pmixp_coll_sanity_check(coll);
 	if (0 > (chld_id = _chld_id(tree, peerid))) {
 		char *nodename = pmixp_info_job_host(peerid);
 		char *avail_ids = _chld_ids_str(tree);
@@ -1259,7 +1252,7 @@ int pmixp_coll_tree_contrib_parent(pmixp_coll_t *coll, uint32_t peerid,
 	}
 
 	/* Sanity check */
-	pmixp_coll_tree_sanity_check(coll);
+	pmixp_coll_sanity_check(coll);
 	if (expected_peerid != peerid) {
 		char *nodename = pmixp_info_job_host(peerid);
 		/* protect ourselfs if we are running with no asserts */

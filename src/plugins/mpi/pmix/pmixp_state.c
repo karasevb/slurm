@@ -150,7 +150,7 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 		 * structure right after that */
 		ret = xmalloc(sizeof(*ret));
 		/* initialize with unlocked list but locked element */
-		if (SLURM_SUCCESS != pmixp_coll_tree_init(ret, procs, nprocs)) {
+		if (SLURM_SUCCESS != pmixp_coll_init(ret, type, procs, nprocs)) {
 			if (ret->pset.procs) {
 				xfree(ret->pset.procs);
 			}
