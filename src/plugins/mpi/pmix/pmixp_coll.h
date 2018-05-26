@@ -51,45 +51,6 @@ typedef enum {
 	PMIXP_COLL_TYPE_DISCONNECT
 } pmixp_coll_type_t;
 
-typedef struct {
-#ifndef NDEBUG
-#define PMIXP_COLL_STATE_MAGIC 0xC011CAFE
-	int magic;
-#endif
-	/* element-wise lock */
-	pthread_mutex_t lock;
-
-	/* collective state */
-	uint32_t seq;
-
-	/* general information */
-	pmixp_coll_type_t type;
-
-	/* PMIx collective id */
-	struct {
-		pmixp_proc_t *procs;
-		size_t nprocs;
-	} pset;
-	int my_peerid;
-	int peers_cnt;
-#ifdef PMIXP_COLL_DEBUG
-	hostlist_t peers_hl;
-#endif
-
-	/* libpmix callback data */
-	void *cbfunc;
-	void *cbdata;
-
-	/* timestamp for stale collectives detection */
-	time_t ts, ts_next;
-
-	/* coll states */
-	union {
-		pmixp_coll_tree_t tree;
-		/* pmixp_coll_ring_t ring */
-	} state;
-} pmixp_coll_t;
-
 inline static char *
 pmixp_coll_type2str(pmixp_coll_type_t type) {
 	switch(type) {
@@ -105,6 +66,9 @@ pmixp_coll_type2str(pmixp_coll_type_t type) {
 }
 
 #define PMIXP_COLL_DEBUG 1
+
+int pmixp_hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
+			      hostlist_t *hl_out);
 
 /* PMIx Tree collective */
 
@@ -163,16 +127,13 @@ pmixp_coll_tree_sndstatus2str(pmixp_coll_tree_sndstate_t state)
 }
 
 typedef enum {
-	PMIXP_COLL_REQ_PROGRESS,
-	PMIXP_COLL_REQ_SKIP,
-	PMIXP_COLL_REQ_FAILURE
+	PMIXP_COLL_TREE_REQ_PROGRESS,
+	PMIXP_COLL_TREE_REQ_SKIP,
+	PMIXP_COLL_TREE_REQ_FAILURE
 } pmixp_coll_tree_req_state_t;
 
+/* tree coll struct */
 typedef struct {
-#ifndef NDEBUG
-#define PMIXP_COLL_TREE_MAGIC 0xC011CAFE
-	int magic;
-#endif
 	/* general information */
 	pmixp_coll_tree_state_t state;
 
@@ -200,14 +161,54 @@ typedef struct {
 	size_t serv_offs, dfwd_offset, ufwd_offset;
 } pmixp_coll_tree_t;
 
-static inline void pmixp_coll_tree_sanity_check(pmixp_coll_tree_t *tree)
+/* General coll struct */
+typedef struct {
+#ifndef NDEBUG
+#define PMIXP_COLL_STATE_MAGIC 0xC011CAFE
+	int magic;
+#endif
+	/* element-wise lock */
+	pthread_mutex_t lock;
+
+	/* collective state */
+	uint32_t seq;
+
+	/* general information */
+	pmixp_coll_type_t type;
+
+	/* PMIx collective id */
+	struct {
+		pmixp_proc_t *procs;
+		size_t nprocs;
+	} pset;
+	int my_peerid;
+	int peers_cnt;
+#ifdef PMIXP_COLL_DEBUG
+	hostlist_t peers_hl;
+#endif
+
+	/* libpmix callback data */
+	void *cbfunc;
+	void *cbdata;
+
+	/* timestamp for stale collectives detection */
+	time_t ts, ts_next;
+
+	/* coll states */
+	union {
+		pmixp_coll_tree_t tree;
+		/* pmixp_coll_ring_t ring */
+	} state;
+} pmixp_coll_t;
+
+static inline void pmixp_coll_tree_sanity_check(pmixp_coll_t *coll)
 {
-	xassert(NULL != tree);
-	xassert(tree->magic == PMIXP_COLL_TREE_MAGIC);
+	xassert(NULL != coll);
+	xassert(coll->magic == PMIXP_COLL_STATE_MAGIC);
 }
 
 int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
-			 size_t nprocs, pmixp_coll_type_t type);
+			 size_t nprocs);
 void pmixp_coll_tree_free(pmixp_coll_t *coll);
 
 pmixp_coll_t *pmixp_coll_tree_from_cbdata(void *cbdata);

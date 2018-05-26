@@ -3,7 +3,8 @@
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
  *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
- *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
+ *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
+ *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -39,45 +40,12 @@
 #include "src/slurmd/common/reverse_tree_math.h"
 #include "src/common/slurm_protocol_api.h"
 #include "pmixp_coll.h"
-#include "pmixp_coll_tree.h"
 #include "pmixp_nspaces.h"
 #include "pmixp_server.h"
 #include "pmixp_client.h"
 
-static void _progress_coll(struct pmixp_coll_s *coll);
-static void _reset_coll(struct pmixp_coll_s *coll);
-
-static int _hostset_from_ranges(const pmixp_proc_t *procs, size_t nprocs,
-				hostlist_t *hl_out)
-{
-	int i;
-	hostlist_t hl = hostlist_create("");
-	pmixp_namespace_t *nsptr = NULL;
-	for (i = 0; i < nprocs; i++) {
-		char *node = NULL;
-		hostlist_t tmp;
-		nsptr = pmixp_nspaces_find(procs[i].nspace);
-		if (NULL == nsptr) {
-			goto err_exit;
-		}
-		if (pmixp_lib_is_wildcard(procs[i].rank)) {
-			tmp = hostlist_copy(nsptr->hl);
-		} else {
-			tmp = pmixp_nspace_rankhosts(nsptr, &procs[i].rank, 1);
-		}
-		while (NULL != (node = hostlist_pop(tmp))) {
-			hostlist_push(hl, node);
-			free(node);
-		}
-		hostlist_destroy(tmp);
-	}
-	hostlist_uniq(hl);
-	*hl_out = hl;
-	return SLURM_SUCCESS;
-err_exit:
-	hostlist_destroy(hl);
-	return SLURM_ERROR;
-}
+static void _progress_coll(pmixp_coll_t *coll);
+static void _reset_coll(pmixp_coll_t *coll);
 
 /*
  * This is important routine that takes responsibility to decide
@@ -124,31 +92,31 @@ err_exit:
  *    (e) at FAN-OUT waiting for the fan-out msg while receiving next fan-in
  *        message from one of our children (coll->seq + 1 == child_seq).
  */
-inline int pmixp_coll_tree_check_seq(struct pmixp_coll_s *coll, uint32_t seq)
+inline int pmixp_coll_tree_check_seq(pmixp_coll_t *coll, uint32_t seq)
 {
 	if (coll->seq == seq) {
 		/* accept this message */
-		return PMIXP_COLL_REQ_PROGRESS;
+		return PMIXP_COLL_TREE_REQ_PROGRESS;
 	} else if ((coll->seq+1) == seq) {
 		/* practice shows that because of Slurm communication
 		 * infrastructure our child can switch to the next Fence
 		 * and send us the message before the current fan-out message
 		 * arrived. This is accounted in current state machine, so we
 		 * allow if we receive message with seq number grater by one */
-		return PMIXP_COLL_REQ_PROGRESS;
+		return PMIXP_COLL_TREE_REQ_PROGRESS;
 	} else if ((coll->seq - 1) == seq) {
 		/* his may be our child OR root of the tree that
 		 * had false negatives from Slurm protocol.
 		 * It's normal situation, return error because we
 		 * want to discard this message */
-		return PMIXP_COLL_REQ_SKIP;
+		return PMIXP_COLL_TREE_REQ_SKIP;
 	}
 	/* maybe need more sophisticated handling in presence of
 	 * several steps. However maybe it's enough to just ignore */
-	return PMIXP_COLL_REQ_FAILURE;
+	return PMIXP_COLL_TREE_REQ_FAILURE;
 }
 
-static int _pack_coll_info(struct pmixp_coll_s *coll, Buf buf)
+static int _pack_coll_info(pmixp_coll_t *coll, Buf buf)
 {
 	pmixp_proc_t *procs = coll->pset.procs;
 	size_t nprocs = coll->pset.nprocs;
@@ -170,7 +138,7 @@ static int _pack_coll_info(struct pmixp_coll_s *coll, Buf buf)
 	return SLURM_SUCCESS;
 }
 
-int pmixp_coll_tree_unpack_info(Buf buf, enum pmixp_coll_type_e *type,
+int pmixp_coll_tree_unpack_info(Buf buf, pmixp_coll_type_t *type,
 				int *nodeid, pmixp_proc_t **r, size_t *nr)
 {
 	pmixp_proc_t *procs = NULL;
@@ -238,7 +206,7 @@ int pmixp_coll_tree_belong_chk(pmixp_coll_type_t type,
 	return -1;
 }
 
-static void _reset_coll_ufwd(struct pmixp_coll_s *coll)
+static void _reset_coll_ufwd(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
@@ -252,10 +220,10 @@ static void _reset_coll_ufwd(struct pmixp_coll_s *coll)
 		PMIXP_ERROR("Cannot pack ranges to message header!");
 	}
 	tree->ufwd_offset = get_buf_offset(tree->ufwd_buf);
-	tree->ufwd_status = PMIXP_COLL_SND_NONE;
+	tree->ufwd_status = PMIXP_COLL_TREE_SND_NONE;
 }
 
-static void _reset_coll_dfwd(struct pmixp_coll_s *coll)
+static void _reset_coll_dfwd(pmixp_coll_t *coll)
 {
 	/* downwards status */
 	(void)pmixp_server_buf_reset(coll->state.tree.dfwd_buf);
@@ -264,45 +232,45 @@ static void _reset_coll_dfwd(struct pmixp_coll_s *coll)
 	}
 	coll->state.tree.dfwd_cb_cnt = 0;
 	coll->state.tree.dfwd_cb_wait = 0;
-	coll->state.tree.dfwd_status = PMIXP_COLL_SND_NONE;
+	coll->state.tree.dfwd_status = PMIXP_COLL_TREE_SND_NONE;
 	coll->state.tree.contrib_prnt = false;
 	/* Save the toal service offset */
 	coll->state.tree.dfwd_offset = get_buf_offset(coll->state.tree.dfwd_buf);
 }
 
-static void _reset_coll(struct pmixp_coll_s *coll)
+static void _reset_coll(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
 	switch (tree->state) {
-	case PMIXP_COLL_SYNC:
+	case PMIXP_COLL_TREE_SYNC:
 		/* already reset */
 		xassert(!tree->contrib_local && !tree->contrib_children &&
 			!tree->contrib_prnt);
 		break;
-	case PMIXP_COLL_COLLECT:
-	case PMIXP_COLL_UPFWD:
-	case PMIXP_COLL_UPFWD_WSC:
+	case PMIXP_COLL_TREE_COLLECT:
+	case PMIXP_COLL_TREE_UPFWD:
+	case PMIXP_COLL_TREE_UPFWD_WSC:
 		coll->seq++;
-		tree->state = PMIXP_COLL_SYNC;
+		tree->state = PMIXP_COLL_TREE_SYNC;
 		_reset_coll_ufwd(coll);
 		_reset_coll_dfwd(coll);
 		coll->cbdata = NULL;
 		coll->cbfunc = NULL;
 		break;
-	case PMIXP_COLL_UPFWD_WPC:
+	case PMIXP_COLL_TREE_UPFWD_WPC:
 		/* If we were waiting for the parent contrib,
 		 * upward portion is already reset, and may contain
 		 * next collective's data */
-	case PMIXP_COLL_DOWNFWD:
+	case PMIXP_COLL_TREE_DOWNFWD:
 		/* same with downward state */
 		coll->seq++;
 		_reset_coll_dfwd(coll);
 		if (tree->contrib_local || tree->contrib_children) {
 			/* next collective was already started */
-			tree->state = PMIXP_COLL_COLLECT;
+			tree->state = PMIXP_COLL_TREE_COLLECT;
 		} else {
-			tree->state = PMIXP_COLL_SYNC;
+			tree->state = PMIXP_COLL_TREE_SYNC;
 		}
 
 		if (!tree->contrib_local) {
@@ -323,25 +291,25 @@ static void _reset_coll(struct pmixp_coll_s *coll)
 /*
  * Based on ideas provided by Hongjia Cao <hjcao@nudt.edu.cn> in PMI2 plugin
  */
-int pmixp_coll_tree_init(struct pmixp_coll_s *coll, const pmixp_proc_t *procs,
-			 size_t nprocs, pmixp_coll_type_t type)
+int pmixp_coll_tree_init(pmixp_coll_t *coll, const pmixp_proc_t *procs,
+			 size_t nprocs)
 {
 	hostlist_t hl;
 	int max_depth, width, depth, i;
 	char *p;
-	pmixp_coll_tree_t *tree = &coll->state.tree;
+	pmixp_coll_tree_t *tree = NULL;
 
 #ifndef NDEBUG
 	coll->magic = PMIXP_COLL_STATE_MAGIC;
-	tree->magic = PMIXP_COLL_TREE_MAGIC;
 #endif
-	tree->state = PMIXP_COLL_SYNC;
-	coll->type = type;
+	coll->type = PMIXP_COLL_TYPE_FENCE;
+	tree = &coll->state.tree;
+	tree->state = PMIXP_COLL_TREE_SYNC;
 	coll->pset.procs = xmalloc(sizeof(*procs) * nprocs);
 	coll->pset.nprocs = nprocs;
 	memcpy(coll->pset.procs, procs, sizeof(*procs) * nprocs);
 
-	if (SLURM_SUCCESS != _hostset_from_ranges(procs, nprocs, &hl)) {
+	if (SLURM_SUCCESS != pmixp_hostset_from_ranges(procs, nprocs, &hl)) {
 		/* TODO: provide ranges output routine */
 		PMIXP_ERROR("Bad ranges information");
 		goto err_exit;
@@ -435,7 +403,7 @@ err_exit:
 	return SLURM_ERROR;
 }
 
-void pmixp_coll_tree_free(struct pmixp_coll_s *coll)
+void pmixp_coll_tree_free(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
@@ -472,10 +440,10 @@ typedef struct {
  * use it for internal collective
  * performance evaluation tool.
  */
-struct pmixp_coll_s *pmixp_coll_tree_from_cbdata(void *cbdata)
+pmixp_coll_t *pmixp_coll_tree_from_cbdata(void *cbdata)
 {
 	pmixp_coll_cbdata_t *ptr = (pmixp_coll_cbdata_t*)cbdata;
-	pmixp_coll_tree_sanity_check(&ptr->coll->state.tree);
+	pmixp_coll_tree_sanity_check(ptr->coll);
 	return ptr->coll;
 }
 
@@ -498,15 +466,15 @@ static void _ufwd_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_vcbdata)
 		goto exit;
 	}
 
-	xassert(PMIXP_COLL_UPFWD == tree->state ||
-		PMIXP_COLL_UPFWD_WSC == tree->state);
+	xassert(PMIXP_COLL_TREE_UPFWD == tree->state ||
+		PMIXP_COLL_TREE_UPFWD_WSC == tree->state);
 
 
 	/* Change  the status */
 	if( SLURM_SUCCESS == rc ){
-		tree->ufwd_status = PMIXP_COLL_SND_DONE;
+		tree->ufwd_status = PMIXP_COLL_TREE_SND_DONE;
 	} else {
-		tree->ufwd_status = PMIXP_COLL_SND_FAILED;
+		tree->ufwd_status = PMIXP_COLL_TREE_SND_FAILED;
 	}
 
 #ifdef PMIXP_COLL_DEBUG
@@ -552,13 +520,13 @@ static void _dfwd_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_vcbdata)
 		goto exit;
 	}
 
-	xassert(PMIXP_COLL_DOWNFWD == tree->state);
+	xassert(PMIXP_COLL_TREE_DOWNFWD == tree->state);
 
 	/* Change  the status */
 	if( SLURM_SUCCESS == rc ){
 		tree->dfwd_cb_cnt++;
 	} else {
-		tree->dfwd_status = PMIXP_COLL_SND_FAILED;
+		tree->dfwd_status = PMIXP_COLL_TREE_SND_FAILED;
 	}
 
 #ifdef PMIXP_COLL_DEBUG
@@ -604,7 +572,7 @@ static void _libpmix_cb(void *_vcbdata)
 		goto exit;
 	}
 
-	xassert(PMIXP_COLL_DOWNFWD == tree->state);
+	xassert(PMIXP_COLL_TREE_DOWNFWD == tree->state);
 
 	tree->dfwd_cb_cnt++;
 #ifdef PMIXP_COLL_DEBUG
@@ -632,7 +600,7 @@ static int _progress_collect(pmixp_coll_t *coll)
 	int rc;
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
-	xassert(PMIXP_COLL_COLLECT == tree->state);
+	xassert(PMIXP_COLL_TREE_COLLECT == tree->state);
 
 	ep.type = PMIXP_EP_NONE;
 #ifdef PMIXP_COLL_DEBUG
@@ -641,9 +609,9 @@ static int _progress_collect(pmixp_coll_t *coll)
 		    (int)tree->contrib_local, tree->contrib_children);
 #endif
 	/* lock the collective */
-	pmixp_coll_tree_sanity_check(tree);
+	pmixp_coll_tree_sanity_check(coll);
 
-	if (PMIXP_COLL_COLLECT != tree->state) {
+	if (PMIXP_COLL_TREE_COLLECT != tree->state) {
 		/* In case of race condition between libpmix and
 		 * slurm threads we can be called
 		 * after we moved to the next step. */
@@ -659,7 +627,7 @@ static int _progress_collect(pmixp_coll_t *coll)
 	if (pmixp_info_srv_direct_conn()) {
 		/* We will need to forward aggregated
 		 * message back to our children */
-		tree->state = PMIXP_COLL_UPFWD;
+		tree->state = PMIXP_COLL_TREE_UPFWD;
 	} else {
 		/* If we use Slurm API (SAPI) - intermediate nodes
 		 * don't need to forward data as the root will do
@@ -672,9 +640,9 @@ static int _progress_collect(pmixp_coll_t *coll)
 		 * that properly.
 		 */
 		if (0 > tree->prnt_peerid) {
-			tree->state = PMIXP_COLL_UPFWD;
+			tree->state = PMIXP_COLL_TREE_UPFWD;
 		} else {
-			tree->state = PMIXP_COLL_UPFWD_WSC;
+			tree->state = PMIXP_COLL_TREE_UPFWD_WSC;
 		}
 	}
 
@@ -682,7 +650,7 @@ static int _progress_collect(pmixp_coll_t *coll)
 	if (NULL != tree->prnt_host) {
 		ep.type = PMIXP_EP_NOIDEID;
 		ep.ep.nodeid = tree->prnt_peerid;
-		tree->ufwd_status = PMIXP_COLL_SND_ACTIVE;
+		tree->ufwd_status = PMIXP_COLL_TREE_SND_ACTIVE;
 		PMIXP_DEBUG("%p: send data to %s:%d",
 			    coll, tree->prnt_host, tree->prnt_peerid);
 	} else {
@@ -696,7 +664,7 @@ static int _progress_collect(pmixp_coll_t *coll)
 		memcpy(dst, src, size);
 		set_buf_offset(tree->dfwd_buf, tree->dfwd_offset + size);
 		/* no need to send */
-		tree->ufwd_status = PMIXP_COLL_SND_DONE;
+		tree->ufwd_status = PMIXP_COLL_TREE_SND_DONE;
 		/* this is root */
 		tree->contrib_prnt = true;
 	}
@@ -717,7 +685,7 @@ static int _progress_collect(pmixp_coll_t *coll)
 				    "to %s:%d",
 				    (uint64_t) get_buf_offset(tree->ufwd_buf),
 				    nodename, ep.ep.nodeid);
-			tree->ufwd_status = PMIXP_COLL_SND_FAILED;
+			tree->ufwd_status = PMIXP_COLL_TREE_SND_FAILED;
 		}
 #ifdef PMIXP_COLL_DEBUG
 		PMIXP_DEBUG("%p: fwd to %s:%d, size = %lu",
@@ -739,12 +707,12 @@ static int _progress_ufwd(pmixp_coll_t *coll)
 	char *nodename = NULL;
 	pmixp_coll_cbdata_t *cbdata = NULL;
 
-	xassert(PMIXP_COLL_UPFWD == tree->state);
+	xassert(PMIXP_COLL_TREE_UPFWD == tree->state);
 
 	/* for some reasons doesnt switch to downfwd */
 
 	switch (tree->ufwd_status) {
-	case PMIXP_COLL_SND_FAILED:
+	case PMIXP_COLL_TREE_SND_FAILED:
 		/* something went wrong with upward send.
 		 * notify libpmix about that and abort
 		 * collective */
@@ -755,10 +723,10 @@ static int _progress_ufwd(pmixp_coll_t *coll)
 		_reset_coll(coll);
 		/* Don't need to do anything else */
 		return false;
-	case PMIXP_COLL_SND_ACTIVE:
+	case PMIXP_COLL_TREE_SND_ACTIVE:
 		/* still waiting for the send completion */
 		return false;
-	case PMIXP_COLL_SND_DONE:
+	case PMIXP_COLL_TREE_SND_DONE:
 		if (tree->contrib_prnt) {
 			/* all-set to go to the next stage */
 			break;
@@ -773,8 +741,8 @@ static int _progress_ufwd(pmixp_coll_t *coll)
 	_reset_coll_ufwd(coll);
 
 	/* move to the next state */
-	tree->state = PMIXP_COLL_DOWNFWD;
-	tree->dfwd_status = PMIXP_COLL_SND_ACTIVE;
+	tree->state = PMIXP_COLL_TREE_DOWNFWD;
+	tree->dfwd_status = PMIXP_COLL_TREE_SND_ACTIVE;
 	if (!pmixp_info_srv_direct_conn()) {
 		/* only root of the tree should get here */
 		xassert(0 > tree->prnt_peerid);
@@ -825,7 +793,7 @@ static int _progress_ufwd(pmixp_coll_t *coll)
 				    (uint64_t) get_buf_offset(tree->dfwd_buf),
 				    ep[i].ep.hostlist);
 			}
-			tree->dfwd_status = PMIXP_COLL_SND_FAILED;
+			tree->dfwd_status = PMIXP_COLL_TREE_SND_FAILED;
 		}
 #ifdef PMIXP_COLL_DEBUG
 		if (PMIXP_EP_NOIDEID == ep[i].type) {
@@ -859,15 +827,15 @@ static int _progress_ufwd(pmixp_coll_t *coll)
 	return true;
 }
 
-static int _progress_ufwd_sc(struct pmixp_coll_s *coll)
+static int _progress_ufwd_sc(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
-	xassert(PMIXP_COLL_UPFWD_WSC == tree->state);
+	xassert(PMIXP_COLL_TREE_UPFWD_WSC == tree->state);
 
 	/* for some reasons doesnt switch to downfwd */
 	switch (tree->ufwd_status) {
-	case PMIXP_COLL_SND_FAILED:
+	case PMIXP_COLL_TREE_SND_FAILED:
 		/* something went wrong with upward send.
 		 * notify libpmix about that and abort
 		 * collective */
@@ -878,10 +846,10 @@ static int _progress_ufwd_sc(struct pmixp_coll_s *coll)
 		_reset_coll(coll);
 		/* Don't need to do anything else */
 		return false;
-	case PMIXP_COLL_SND_ACTIVE:
+	case PMIXP_COLL_TREE_SND_ACTIVE:
 		/* still waiting for the send completion */
 		return false;
-	case PMIXP_COLL_SND_DONE:
+	case PMIXP_COLL_TREE_SND_DONE:
 		/* move to the next step */
 		break;
 	default:
@@ -893,27 +861,27 @@ static int _progress_ufwd_sc(struct pmixp_coll_s *coll)
 	_reset_coll_ufwd(coll);
 
 	/* move to the next state */
-	tree->state = PMIXP_COLL_UPFWD_WPC;
+	tree->state = PMIXP_COLL_TREE_UPFWD_WPC;
 	return true;
 }
 
-static int _progress_ufwd_wpc(struct pmixp_coll_s *coll)
+static int _progress_ufwd_wpc(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
-	xassert(PMIXP_COLL_UPFWD_WPC == tree->state);
+	xassert(PMIXP_COLL_TREE_UPFWD_WPC == tree->state);
 
 	if (!tree->contrib_prnt) {
 		return false;
 	}
 
 	/* Need to wait only for the local completion callback if installed*/
-	tree->dfwd_status = PMIXP_COLL_SND_ACTIVE;
+	tree->dfwd_status = PMIXP_COLL_TREE_SND_ACTIVE;
 	tree->dfwd_cb_wait = 0;
 
 
 	/* move to the next state */
-	tree->state = PMIXP_COLL_DOWNFWD;
+	tree->state = PMIXP_COLL_TREE_DOWNFWD;
 
 	/* local delivery */
 	if (coll->cbfunc) {
@@ -939,21 +907,21 @@ static int _progress_ufwd_wpc(struct pmixp_coll_s *coll)
 	return true;
 }
 
-static int _progress_dfwd(struct pmixp_coll_s *coll)
+static int _progress_dfwd(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
-	xassert(PMIXP_COLL_DOWNFWD == tree->state);
+	xassert(PMIXP_COLL_TREE_DOWNFWD == tree->state);
 
 	/* if all childrens + local callbacks was invoked */
 	if (tree->dfwd_cb_wait == tree->dfwd_cb_cnt) {
-		tree->dfwd_status = PMIXP_COLL_SND_DONE;
+		tree->dfwd_status = PMIXP_COLL_TREE_SND_DONE;
 	}
 
 	switch (tree->dfwd_status) {
-	case PMIXP_COLL_SND_ACTIVE:
+	case PMIXP_COLL_TREE_SND_ACTIVE:
 		return false;
-	case PMIXP_COLL_SND_FAILED:
+	case PMIXP_COLL_TREE_SND_FAILED:
 		/* something went wrong with upward send.
 		 * notify libpmix about that and abort
 		 * collective */
@@ -965,7 +933,7 @@ static int _progress_dfwd(struct pmixp_coll_s *coll)
 		_reset_coll(coll);
 		/* Don't need to do anything else */
 		return false;
-	case PMIXP_COLL_SND_DONE:
+	case PMIXP_COLL_TREE_SND_DONE:
 		break;
 	default:
 		/* Should not happen, fatal error */
@@ -987,28 +955,28 @@ static void _progress_coll(pmixp_coll_t *coll)
 
 	do {
 		switch (tree->state) {
-		case PMIXP_COLL_SYNC:
+		case PMIXP_COLL_TREE_SYNC:
 			/* check if any activity was observed */
 			if (tree->contrib_local || tree->contrib_children) {
-				tree->state = PMIXP_COLL_COLLECT;
+				tree->state = PMIXP_COLL_TREE_COLLECT;
 				ret = true;
 			} else {
 				ret = false;
 			}
 			break;
-		case PMIXP_COLL_COLLECT:
+		case PMIXP_COLL_TREE_COLLECT:
 			ret = _progress_collect(coll);
 			break;
-		case PMIXP_COLL_UPFWD:
+		case PMIXP_COLL_TREE_UPFWD:
 			ret = _progress_ufwd(coll);
 			break;
-		case PMIXP_COLL_UPFWD_WSC:
+		case PMIXP_COLL_TREE_UPFWD_WSC:
 			ret = _progress_ufwd_sc(coll);
 			break;
-		case PMIXP_COLL_UPFWD_WPC:
+		case PMIXP_COLL_TREE_UPFWD_WPC:
 			ret = _progress_ufwd_wpc(coll);
 			break;
-		case PMIXP_COLL_DOWNFWD:
+		case PMIXP_COLL_TREE_DOWNFWD:
 			ret = _progress_dfwd(coll);
 			break;
 		default:
@@ -1018,7 +986,7 @@ static void _progress_coll(pmixp_coll_t *coll)
 	} while(ret);
 }
 
-int pmixp_coll_tree_contrib_local(struct pmixp_coll_s *coll, char *data, size_t size,
+int pmixp_coll_tree_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
 				  void *cbfunc, void *cbdata)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
@@ -1027,7 +995,7 @@ int pmixp_coll_tree_contrib_local(struct pmixp_coll_s *coll, char *data, size_t 
 	pmixp_debug_hang(0);
 
 	/* sanity check */
-	pmixp_coll_tree_sanity_check(tree);
+	pmixp_coll_tree_sanity_check(coll);
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -1038,14 +1006,14 @@ int pmixp_coll_tree_contrib_local(struct pmixp_coll_s *coll, char *data, size_t 
 #endif
 
 	switch (tree->state) {
-	case PMIXP_COLL_SYNC:
+	case PMIXP_COLL_TREE_SYNC:
 		/* change the state */
 		coll->ts = time(NULL);
 		/* fall-thru */
-	case PMIXP_COLL_COLLECT:
+	case PMIXP_COLL_TREE_COLLECT:
 		/* sanity check */
 		break;
-	case PMIXP_COLL_DOWNFWD:
+	case PMIXP_COLL_TREE_DOWNFWD:
 		/* We are waiting for some send requests
 		 * to be finished, but local node has started
 		 * the next contribution.
@@ -1057,9 +1025,9 @@ int pmixp_coll_tree_contrib_local(struct pmixp_coll_s *coll, char *data, size_t 
 		PMIXP_DEBUG("%p: contrib/loc: next coll!", coll);
 #endif
 		break;
-	case PMIXP_COLL_UPFWD:
-	case PMIXP_COLL_UPFWD_WSC:
-	case PMIXP_COLL_UPFWD_WPC:
+	case PMIXP_COLL_TREE_UPFWD:
+	case PMIXP_COLL_TREE_UPFWD_WSC:
+	case PMIXP_COLL_TREE_UPFWD_WPC:
 		/* this is not a correct behavior, respond with an error. */
 #ifdef PMIXP_COLL_DEBUG
 		PMIXP_DEBUG("%p: contrib/loc: before prev coll is finished!",
@@ -1135,7 +1103,7 @@ static char *_chld_ids_str(pmixp_coll_tree_t *tree)
 }
 
 
-int pmixp_coll_tree_contrib_child(struct pmixp_coll_s *coll, uint32_t peerid,
+int pmixp_coll_tree_contrib_child(pmixp_coll_t *coll, uint32_t peerid,
 				  uint32_t seq, Buf buf)
 {
 	char *data_src = NULL, *data_dst = NULL;
@@ -1145,7 +1113,7 @@ int pmixp_coll_tree_contrib_child(struct pmixp_coll_s *coll, uint32_t peerid,
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
-	pmixp_coll_tree_sanity_check(tree);
+	pmixp_coll_tree_sanity_check(coll);
 	if (0 > (chld_id = _chld_id(tree, peerid))) {
 		char *nodename = pmixp_info_job_host(peerid);
 		char *avail_ids = _chld_ids_str(tree);
@@ -1166,11 +1134,11 @@ int pmixp_coll_tree_contrib_child(struct pmixp_coll_s *coll, uint32_t peerid,
 #endif
 
 	switch (tree->state) {
-	case PMIXP_COLL_SYNC:
+	case PMIXP_COLL_TREE_SYNC:
 		/* change the state */
 		coll->ts = time(NULL);
 		/* fall-thru */
-	case PMIXP_COLL_COLLECT:
+	case PMIXP_COLL_TREE_COLLECT:
 		/* sanity check */
 		if (coll->seq != seq) {
 			char *nodename = pmixp_info_job_host(peerid);
@@ -1185,16 +1153,16 @@ int pmixp_coll_tree_contrib_child(struct pmixp_coll_s *coll, uint32_t peerid,
 			abort();
 		}
 		break;
-	case PMIXP_COLL_UPFWD:
-	case PMIXP_COLL_UPFWD_WSC:
+	case PMIXP_COLL_TREE_UPFWD:
+	case PMIXP_COLL_TREE_UPFWD_WSC:
 		/* FATAL: should not happen in normal workflow */
 		PMIXP_ERROR("%p: unexpected contrib from %s:%d, state = %s",
 			    coll, nodename, peerid,
 			    pmixp_coll_tree_state2str(tree->state));
 		xassert(0);
 		abort();
-	case PMIXP_COLL_UPFWD_WPC:
-	case PMIXP_COLL_DOWNFWD:
+	case PMIXP_COLL_TREE_UPFWD_WPC:
+	case PMIXP_COLL_TREE_DOWNFWD:
 #ifdef PMIXP_COLL_DEBUG
 		/* It looks like a retransmission attempt when remote side
 		 * identified transmission failure, but we actually successfuly
@@ -1269,7 +1237,7 @@ proceed:
 	return SLURM_SUCCESS;
 }
 
-int pmixp_coll_tree_contrib_parent(struct pmixp_coll_s *coll, uint32_t peerid,
+int pmixp_coll_tree_contrib_parent(pmixp_coll_t *coll, uint32_t peerid,
 				   uint32_t seq, Buf buf)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
@@ -1291,7 +1259,7 @@ int pmixp_coll_tree_contrib_parent(struct pmixp_coll_s *coll, uint32_t peerid,
 	}
 
 	/* Sanity check */
-	pmixp_coll_tree_sanity_check(tree);
+	pmixp_coll_tree_sanity_check(coll);
 	if (expected_peerid != peerid) {
 		char *nodename = pmixp_info_job_host(peerid);
 		/* protect ourselfs if we are running with no asserts */
@@ -1312,8 +1280,8 @@ int pmixp_coll_tree_contrib_parent(struct pmixp_coll_s *coll, uint32_t peerid,
 #endif
 
 	switch (tree->state) {
-	case PMIXP_COLL_SYNC:
-	case PMIXP_COLL_COLLECT:
+	case PMIXP_COLL_TREE_SYNC:
+	case PMIXP_COLL_TREE_COLLECT:
 		/* It looks like a retransmission attempt when remote side
 		 * identified transmission failure, but we actually successfuly
 		 * received the message */
@@ -1339,7 +1307,7 @@ int pmixp_coll_tree_contrib_parent(struct pmixp_coll_s *coll, uint32_t peerid,
 			abort();
 		}
 		goto proceed;
-	case PMIXP_COLL_UPFWD_WSC:{
+	case PMIXP_COLL_TREE_UPFWD_WSC:{
 		/* we are not actually ready to receive this contribution as
 		 * the upward portion of the collective wasn't received yet.
 		 * This should not happen as SAPI (Slurm API) is blocking and
@@ -1356,11 +1324,11 @@ int pmixp_coll_tree_contrib_parent(struct pmixp_coll_s *coll, uint32_t peerid,
 		xassert((coll->seq - 1) == seq);
 		abort();
 	}
-	case PMIXP_COLL_UPFWD:
-	case PMIXP_COLL_UPFWD_WPC:
+	case PMIXP_COLL_TREE_UPFWD:
+	case PMIXP_COLL_TREE_UPFWD_WPC:
 		/* we were waiting for this */
 		break;
-	case PMIXP_COLL_DOWNFWD:
+	case PMIXP_COLL_TREE_DOWNFWD:
 		/* It looks like a retransmission attempt when remote side
 		 * identified transmission failure, but we actually successfuly
 		 * received the message */
@@ -1433,14 +1401,14 @@ proceed:
 	return SLURM_SUCCESS;
 }
 
-void pmixp_coll_tree_reset_if_to(struct pmixp_coll_s *coll, time_t ts)
+void pmixp_coll_tree_reset_if_to(pmixp_coll_t *coll, time_t ts)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
 	/* lock the */
 	slurm_mutex_lock(&coll->lock);
 
-	if (PMIXP_COLL_SYNC == tree->state) {
+	if (PMIXP_COLL_TREE_SYNC == tree->state) {
 		goto unlock;
 	}
 
