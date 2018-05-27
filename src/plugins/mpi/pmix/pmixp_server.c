@@ -1832,7 +1832,7 @@ static int _pmixp_server_cperf_iter(char *data, int ndata)
 	int cur_count = _pmixp_server_cperf_count();
 	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
 	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
-	pmixp_cperf_cbfunc_fn_t cperf_cbfun = _pmixp_cperf_tree_cbfunc;
+	pmixp_cperf_cbfunc_fn_t cperf_cbfunc = _pmixp_cperf_tree_cbfunc;
 
 	strncpy(procs.nspace, pmixp_info_namespace(), PMIXP_MAX_NSLEN);
 	procs.rank = pmixp_lib_get_wildcard();
@@ -1847,19 +1847,19 @@ static int _pmixp_server_cperf_iter(char *data, int ndata)
 	switch (fence_type) {
 	case PMIXP_FENCE_RING:
 		type = PMIXP_COLL_TYPE_FENCE_RING;
-		cperf_cbfun = _pmixp_cperf_ring_cbfunc;
+		cperf_cbfunc = _pmixp_cperf_ring_cbfunc;
 		break;
 	case PMIXP_FENCE_TREE:
 	default:
 		type = PMIXP_COLL_TYPE_FENCE;
-		cperf_cbfun = _pmixp_cperf_tree_cbfunc;
+		cperf_cbfunc = _pmixp_cperf_tree_cbfunc;
 		break;
 	}
 
 	coll = pmixp_state_coll_get(type, &procs, 1);
 	pmixp_coll_sanity_check(coll);
 	xassert(!pmixp_coll_contrib_local(coll, type, data, ndata,
-					  cperf_cbfun, NULL));
+					  cperf_cbfunc, NULL));
 
 	while (cur_count == _pmixp_server_cperf_count()) {
 		usleep(1);

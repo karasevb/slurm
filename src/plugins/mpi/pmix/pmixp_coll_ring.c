@@ -63,15 +63,22 @@ static inline pmixp_coll_t *_ctx_get_coll(pmixp_coll_ring_ctx_t *coll_ctx)
 	return coll_ctx->coll;
 }
 
+static inline pmixp_coll_ring_t *_ctx_get_coll_ring(
+		pmixp_coll_ring_ctx_t *coll_ctx)
+{
+	return &coll_ctx->coll->state.ring;
+}
+
 static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 {
 	pmixp_coll_ring_cbdata_t *cbdata = (pmixp_coll_ring_cbdata_t*)_cbdata;
 	pmixp_coll_ring_ctx_t *coll_ctx = cbdata->coll_ctx;
+	pmixp_coll_ring_t *ring = _ctx_get_coll_ring(coll_ctx);
 
 	pmixp_coll_sanity_check(coll_ctx->coll);
 
 	pmixp_server_buf_reset(cbdata->buf);
-	list_push(coll_ctx->fwrd_buf_pool, cbdata->buf);
+	list_push(ring->fwrd_buf_pool, cbdata->buf);
 }
 
 /*
@@ -167,7 +174,8 @@ static int _pack_coll_ring_info(pmixp_coll_t *coll,
 
 static Buf _get_fwd_buf(pmixp_coll_ring_ctx_t *coll_ctx)
 {
-	Buf buf = list_pop(coll_ctx->fwrd_buf_pool);
+	pmixp_coll_ring_t *ring = _ctx_get_coll_ring(coll_ctx);
+	Buf buf = list_pop(ring->fwrd_buf_pool);
 	if (!buf) {
 		buf = pmixp_server_buf_new();
 	}
@@ -334,6 +342,7 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL, *ret = NULL;
 	pmixp_coll_ring_t *ring = &coll->state.ring;
 
+	/* finding the appropriate ring context */
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
 		if (coll_ctx->in_use && coll_ctx->seq == seq) {
@@ -343,6 +352,7 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 			continue;
 		}
 	}
+	/* add this context to use */
 	if (ret && !ret->in_use) {
 		ret->in_use = true;
 		ret->seq = seq;
@@ -357,6 +367,8 @@ int pmixp_coll_ring_init(pmixp_coll_t *coll)
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 	pmixp_coll_ring_t *ring = &coll->state.ring;
 
+	ring->fwrd_buf_pool = list_create(_forward_pool_free);
+
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
 		coll_ctx->coll = coll;
@@ -365,29 +377,27 @@ int pmixp_coll_ring_init(pmixp_coll_t *coll)
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
 		coll_ctx->ring_buf = create_buf(NULL, 0);
-		coll_ctx->fwrd_buf_pool = list_create(_forward_pool_free);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 	}
-#ifdef PMIXP_COLL_RING_DEBUG
-	PMIXP_DEBUG("%p: nprocs=%lu", coll, nprocs);
-#endif
+
 	return SLURM_SUCCESS;
 }
 
-void pmixp_coll_ring_free(pmixp_coll_ring_t *coll_ring)
+void pmixp_coll_ring_free(pmixp_coll_ring_t *ring)
 {
 	int i;
 
 	pmixp_coll_ring_ctx_t *coll_ctx;
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
-		coll_ctx = &coll_ring->ctx_array[i];
+		coll_ctx = &ring->ctx_array[i];
 		free_buf(coll_ctx->ring_buf);
-		list_destroy(coll_ctx->fwrd_buf_pool);
+
 		xfree(coll_ctx->contrib_map);
 	}
-	xfree(coll_ring);
+	list_destroy(ring->fwrd_buf_pool);
+	xfree(ring);
 }
 
 int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,

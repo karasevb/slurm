@@ -144,3 +144,27 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 exit:
 	return rc;
 }
+
+void pmixp_coll_free(pmixp_coll_t *coll)
+{
+	pmixp_coll_sanity_check(coll);
+
+	if (NULL != coll->pset.procs) {
+		xfree(coll->pset.procs);
+	}
+#ifdef PMIXP_COLL_DEBUG
+	hostlist_destroy(coll->peers_hl);
+#endif
+	switch(coll->type) {
+	case PMIXP_COLL_TYPE_FENCE:
+		pmixp_coll_tree_free(&coll->state.tree);
+		break;
+	case PMIXP_COLL_TYPE_FENCE_RING:
+		pmixp_coll_ring_free(&coll->state.ring);
+		break;
+	default:
+		PMIXP_ERROR("Unknown coll type");
+		break;
+	}
+	xfree(coll);
+}

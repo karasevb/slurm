@@ -108,6 +108,10 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 	int ret;
 	size_t i;
 	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
+
+	/* Chooses the coll algorithm defined by user
+	 * thru the env variable: SLURM_PMIXP_FENCE.
+	 * PMIXP_FENCE_AUTO is used by default */
 	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
 
 	switch (fence_type) {

@@ -377,13 +377,8 @@ int pmixp_coll_tree_init(pmixp_coll_t *coll, hostlist_t *hl)
 	return SLURM_SUCCESS;
 }
 
-void pmixp_coll_tree_free(pmixp_coll_t *coll)
+void pmixp_coll_tree_free(pmixp_coll_tree_t *tree)
 {
-	pmixp_coll_tree_t *tree = &coll->state.tree;
-
-	if (NULL != coll->pset.procs) {
-		xfree(coll->pset.procs);
-	}
 	if (NULL != tree->prnt_host) {
 		xfree(tree->prnt_host);
 	}
@@ -394,9 +389,6 @@ void pmixp_coll_tree_free(pmixp_coll_t *coll)
 	if (tree->chldrn_str) {
 		xfree(tree->chldrn_str);
 	}
-#ifdef PMIXP_COLL_DEBUG
-	hostlist_destroy(coll->peers_hl);
-#endif
 	if (NULL != tree->contrib_chld) {
 		xfree(tree->contrib_chld);
 	}

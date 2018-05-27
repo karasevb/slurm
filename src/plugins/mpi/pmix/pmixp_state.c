@@ -48,8 +48,7 @@ pmixp_state_t _pmixp_state;
 void _xfree_coll(void *x)
 {
 	pmixp_coll_t *coll = (pmixp_coll_t *)x;
-	pmixp_coll_tree_free(coll);
-	xfree(coll);
+	pmixp_coll_free(coll);
 }
 
 int pmixp_state_init(void)

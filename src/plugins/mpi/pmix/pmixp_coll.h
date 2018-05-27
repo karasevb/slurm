@@ -183,14 +183,14 @@ typedef struct {
 	bool *contrib_map;
 	pmixp_ring_state_t state;
 	Buf ring_buf;
-	List fwrd_buf_pool;
 } pmixp_coll_ring_ctx_t;
 
 /* coll ring struct */
 typedef struct {
 	/* coll contexts data */
 	pmixp_coll_ring_ctx_t ctx_array[PMIXP_COLL_RING_CTX_NUM];
-	//List fwrd_buf_pool;
+	/* buffer pool to ensure parallel sends of ring data */
+	List fwrd_buf_pool;
 } pmixp_coll_ring_t;
 
 typedef struct {
@@ -266,7 +266,7 @@ typedef struct pmixp_coll_s {
 
 /* tree coll functions*/
 int pmixp_coll_tree_init(pmixp_coll_t *coll, hostlist_t *hl);
-void pmixp_coll_tree_free(pmixp_coll_t *coll);
+void pmixp_coll_tree_free(pmixp_coll_tree_t *tree);
 
 pmixp_coll_t *pmixp_coll_tree_from_cbdata(void *cbdata);
 
@@ -304,8 +304,11 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 						 const uint32_t seq);
 void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx);
 pmixp_coll_t *pmixp_coll_ring_from_cbdata(void *cbdata);
+void pmixp_coll_ring_free(pmixp_coll_ring_t *ring);
 
 
+
+/* common coll func */
 static inline void pmixp_coll_sanity_check(pmixp_coll_t *coll)
 {
 	xassert(NULL != coll);
@@ -316,5 +319,6 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 int pmixp_coll_contrib_local(pmixp_coll_t *coll, pmixp_coll_type_t type,
 			     char *data, size_t ndata,
 			     void *cbfunc, void *cbdata);
+void pmixp_coll_free(pmixp_coll_t *coll);
 
 #endif /* PMIXP_COLL_RING_H */
