@@ -176,7 +176,6 @@ typedef struct {
 
 	/* context data */
 	bool in_use;
-	uint32_t id;
 	uint32_t seq;
 	bool contrib_local;
 	uint32_t contrib_prev;
