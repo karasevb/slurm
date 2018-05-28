@@ -85,7 +85,7 @@ static inline void pmixp_coll_ring_ctx_sanity_check(pmixp_coll_ring_ctx_t *coll_
 {
 	xassert(NULL != coll_ctx);
 	xassert(coll_ctx->in_use);
-	pmixp_coll_sanity_check(&coll_ctx->coll->state.ring);
+	pmixp_coll_sanity_check(coll_ctx->coll);
 }
 
 /*
@@ -403,7 +403,6 @@ void pmixp_coll_ring_free(pmixp_coll_ring_t *ring)
 		xfree(coll_ctx->contrib_map);
 	}
 	list_destroy(ring->fwrd_buf_pool);
-	xfree(ring);
 }
 
 int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
@@ -590,7 +589,6 @@ exit:
 
 void pmixp_coll_ring_reset_if_to(pmixp_coll_t *coll, time_t ts) {
 	pmixp_coll_ring_ctx_t *coll_ctx;
-
 	int i;
 
 	/* lock the structure */

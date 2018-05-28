@@ -45,7 +45,7 @@
 #define PMIXP_COLL_RING_CTX_NUM 2
 
 typedef enum {
-	PMIXP_COLL_TYPE_FENCE = 0,
+	PMIXP_COLL_TYPE_FENCE_TREE = 0,
 	PMIXP_COLL_TYPE_FENCE_RING,
 	/* reserve coll fence ids up to 15 */
 	PMIXP_COLL_TYPE_FENCE_MAX = 15,
@@ -57,7 +57,7 @@ typedef enum {
 inline static char *
 pmixp_coll_type2str(pmixp_coll_type_t type) {
 	switch(type) {
-	case PMIXP_COLL_TYPE_FENCE:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
 		return "COLL_FENCE_TREE";
 	case PMIXP_COLL_TYPE_FENCE_RING:
 		return "COLL_FENCE_RING";

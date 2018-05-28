@@ -173,7 +173,16 @@ void pmixp_state_coll_cleanup(void)
 	/* Walk through the list looking for the collective descriptor */
 	it = list_iterator_create(_pmixp_state.coll);
 	while ((coll = list_next(it))) {
-		pmixp_coll_tree_reset_if_to(coll, ts);
+		switch (coll->type) {
+		case PMIXP_COLL_TYPE_FENCE_TREE:
+			pmixp_coll_tree_reset_if_to(coll, ts);
+			break;
+		case PMIXP_COLL_TYPE_FENCE_RING:
+			pmixp_coll_ring_reset_if_to(coll, ts);
+			break;
+		default:
+			PMIXP_ERROR("Unknown coll type");
+		}
 	}
 	list_iterator_destroy(it);
 }

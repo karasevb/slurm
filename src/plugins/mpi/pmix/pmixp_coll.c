@@ -80,7 +80,7 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, pmixp_coll_type_t type,
 	PMIXP_DEBUG("%p: %s seq=%d, size=%lu", coll, pmixp_coll_type2str(type),
 		    coll->seq, ndata);
 	switch (type) {
-	case PMIXP_COLL_TYPE_FENCE:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
 		ret = pmixp_coll_tree_contrib_local(coll, data,
 						    ndata, cbfunc, cbdata);
 		break;
@@ -126,7 +126,7 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 #endif
 
 	switch(type) {
-	case PMIXP_COLL_TYPE_FENCE:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
 		rc = pmixp_coll_tree_init(coll, &hl);
 		break;
 	case PMIXP_COLL_TYPE_FENCE_RING:
@@ -156,7 +156,7 @@ void pmixp_coll_free(pmixp_coll_t *coll)
 	hostlist_destroy(coll->peers_hl);
 #endif
 	switch(coll->type) {
-	case PMIXP_COLL_TYPE_FENCE:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
 		pmixp_coll_tree_free(&coll->state.tree);
 		break;
 	case PMIXP_COLL_TYPE_FENCE_RING:

@@ -75,12 +75,6 @@ typedef struct {
 	gid_t gid;
 } pmix_jobinfo_t;
 
-typedef enum {
-	PMIXP_FENCE_AUTO = 0,
-	PMIXP_FENCE_TREE,
-	PMIXP_FENCE_RING
-} pmixp_coll_fence_type_t;
-
 extern pmix_jobinfo_t _pmixp_job_info;
 
 /* slurmd contact information */

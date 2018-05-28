@@ -795,11 +795,11 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 			xfree(nodename);
 			goto exit;
 		}
-		if (PMIXP_COLL_TYPE_FENCE != type) {
+		if (PMIXP_COLL_TYPE_FENCE_TREE != type) {
 			char *nodename = pmixp_info_job_host(hdr->nodeid);
 			PMIXP_ERROR("Unexpected collective type=%s from node %s, expected=%s",
 				    pmixp_coll_ring_state2str(type), nodename,
-				    pmixp_coll_ring_state2str(PMIXP_COLL_TYPE_FENCE));
+				    pmixp_coll_ring_state2str(PMIXP_COLL_TYPE_FENCE_TREE));
 			xfree(nodename);
 			goto exit;
 		}
@@ -1830,31 +1830,26 @@ static int _pmixp_server_cperf_iter(char *data, int ndata)
 	pmixp_coll_t *coll;
 	pmixp_proc_t procs;
 	int cur_count = _pmixp_server_cperf_count();
-	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
-	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
+	pmixp_coll_type_t type = pmixp_info_srv_fence_coll_type();
 	pmixp_cperf_cbfunc_fn_t cperf_cbfunc = _pmixp_cperf_tree_cbfunc;
 
 	strncpy(procs.nspace, pmixp_info_namespace(), PMIXP_MAX_NSLEN);
 	procs.rank = pmixp_lib_get_wildcard();
 
-	PMIXP_DEBUG("%s", pmixp_coll_type2str(type));
-
-	if (PMIXP_FENCE_AUTO == fence_type) {
-		fence_type = cur_count%2 ? PMIXP_FENCE_TREE :
-					   PMIXP_FENCE_RING;
-	}
-
-	switch (fence_type) {
-	case PMIXP_FENCE_RING:
-		type = PMIXP_COLL_TYPE_FENCE_RING;
+	switch (type) {
+	case PMIXP_COLL_TYPE_FENCE_RING:
 		cperf_cbfunc = _pmixp_cperf_ring_cbfunc;
 		break;
-	case PMIXP_FENCE_TREE:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
+		/* If PMIXP_COLL_TYPE_FENCE_MAX == type,
+		 * then use TREE by default */
 	default:
-		type = PMIXP_COLL_TYPE_FENCE;
+		type = PMIXP_COLL_TYPE_FENCE_TREE;
 		cperf_cbfunc = _pmixp_cperf_tree_cbfunc;
 		break;
 	}
+
+	PMIXP_DEBUG("%s", pmixp_coll_type2str(type));
 
 	coll = pmixp_state_coll_get(type, &procs, 1);
 	pmixp_coll_sanity_check(coll);
@@ -1925,30 +1920,29 @@ int pmixp_direct_conn_early(void)
 	pmixp_coll_t *coll[PMIXP_COLL_TYPE_FENCE_MAX] = { NULL };
 	int rc, i, ncoll = 0;
 	pmixp_proc_t proc;
-	pmixp_coll_fence_type_t fence_type =
-			pmixp_info_srv_fence_coll_type();
+	pmixp_coll_type_t type = pmixp_info_srv_fence_coll_type();
 
-	pmixp_debug_hang(0);
+	PMIXP_DEBUG("called");
 
 	proc.rank = pmixp_lib_get_wildcard();
 	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
 
-	switch(fence_type) {
-	case PMIXP_FENCE_AUTO:
-	case PMIXP_FENCE_TREE:
-		coll[PMIXP_COLL_TYPE_FENCE] =
-				pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE,
+	switch(type) {
+	default:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
+		coll[PMIXP_COLL_TYPE_FENCE_TREE] =
+				pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_TREE,
 						     &proc, 1);
 		ncoll++;
-		if (fence_type == PMIXP_FENCE_TREE) {
+		if (type == PMIXP_COLL_TYPE_FENCE_TREE) {
 			break;
 		}
-	case PMIXP_FENCE_RING:
+	case PMIXP_COLL_TYPE_FENCE_RING:
 		coll[PMIXP_COLL_TYPE_FENCE_RING] =
 				pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING,
 						     &proc, 1);
 		ncoll++;
-		if (fence_type == PMIXP_FENCE_RING) {
+		if (type == PMIXP_COLL_TYPE_FENCE_RING) {
 			break;
 		}
 	}
@@ -1956,13 +1950,18 @@ int pmixp_direct_conn_early(void)
 	for (i = 0; i < ncoll; i++) {
 		if (coll[i]) {
 			pmixp_ep_t ep = {0};
-			Buf buf = pmixp_server_buf_new();
+			Buf buf;
 
 			ep.type = PMIXP_EP_NOIDEID;
 
 			switch (coll[i]->type) {
-			case PMIXP_COLL_TYPE_FENCE:
+			case PMIXP_COLL_TYPE_FENCE_TREE:
 				ep.ep.nodeid = coll[i]->state.tree.prnt_peerid;
+				if (ep.ep.nodeid < 0) {
+					/* this is the root node, it has no
+					 * the parent node to early connect */
+					continue;
+				}
 				break;
 			case PMIXP_COLL_TYPE_FENCE_RING:
 				/* calculate the id of the next ring neighbor */
@@ -1974,6 +1973,7 @@ int pmixp_direct_conn_early(void)
 				return SLURM_ERROR;
 			}
 
+			buf = pmixp_server_buf_new();
 			rc = pmixp_server_send_nb(
 				&ep, PMIXP_MSG_INIT_DIRECT, coll[i]->seq,
 				buf, _direct_init_sent_buf_cb, NULL);

@@ -39,6 +39,7 @@
 #include "pmixp_common.h"
 #include "pmixp_debug.h"
 #include "pmixp_info.h"
+#include "pmixp_coll.h"
 
 /* Server communication */
 static char *_srv_usock_path = NULL;
@@ -51,7 +52,7 @@ static bool _srv_use_direct_conn_ucx = true;
 #else
 static bool _srv_use_direct_conn_ucx = false;
 #endif
-static int _srv_fence_coll_type = PMIXP_FENCE_AUTO;
+static int _srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 
 pmix_jobinfo_t _pmixp_job_info;
 
@@ -89,7 +90,7 @@ bool pmixp_info_srv_direct_conn(void){
 }
 
 bool pmixp_info_srv_direct_conn_early(void){
-	return _srv_use_direct_conn_early;
+	return _srv_use_direct_conn_early && _srv_use_direct_conn;
 }
 
 bool pmixp_info_srv_direct_conn_ucx(void){
@@ -97,6 +98,9 @@ bool pmixp_info_srv_direct_conn_ucx(void){
 }
 
 int pmixp_info_srv_fence_coll_type(void){
+	if (!_srv_use_direct_conn) {
+		return PMIXP_COLL_TYPE_FENCE_TREE;
+	}
 	return _srv_fence_coll_type;
 }
 
@@ -443,7 +447,7 @@ static int _env_set(char ***env)
 	if (p) {
 		if (!xstrcmp("1", p) || !xstrcasecmp("true", p) ||
 		    !xstrcasecmp("yes", p)) {
-			_srv_use_direct_conn_early = _srv_use_direct_conn & true;
+			_srv_use_direct_conn_early = true;
 		} else if (!xstrcmp("0", p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
 			_srv_use_direct_conn_early = false;
@@ -454,11 +458,11 @@ static int _env_set(char ***env)
 	p = getenvp(*env, PMIXP_COLL_FENCE);
 	if (p) {
 		if (!xstrcmp("auto", p)) {
-			_srv_fence_coll_type = PMIXP_FENCE_AUTO;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 		} else if (!xstrcmp("tree", p)) {
-			_srv_fence_coll_type = PMIXP_FENCE_TREE;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_TREE;
 		} else if (!xstrcmp("ring", p)) {
-			_srv_fence_coll_type = PMIXP_FENCE_RING;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_RING;
 		}
 	}
 

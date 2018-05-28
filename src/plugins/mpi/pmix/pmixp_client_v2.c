@@ -103,7 +103,6 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 {
 	PMIXP_DEBUG("called");
 	pmixp_coll_t *coll;
-	pmixp_coll_type_t type = PMIXP_COLL_TYPE_FENCE;
 	pmix_status_t status = PMIX_SUCCESS;
 	int ret;
 	size_t i;
@@ -111,25 +110,23 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 
 	/* Chooses the coll algorithm defined by user
 	 * thru the env variable: SLURM_PMIXP_FENCE.
-	 * PMIXP_FENCE_AUTO is used by default */
-	pmixp_coll_fence_type_t fence_type = pmixp_info_srv_fence_coll_type();
+	 * By default: PMIXP_COLL_TYPE_FENCE_AUTO
+	 * is used the both fence algorithms */
+	pmixp_coll_type_t type = pmixp_info_srv_fence_coll_type();
 
-	switch (fence_type) {
-	case PMIXP_FENCE_RING:
-		type = PMIXP_COLL_TYPE_FENCE_RING;
-		break;
-	case PMIXP_FENCE_TREE:
-		type = PMIXP_COLL_TYPE_FENCE;
+	switch (type) {
+	case PMIXP_COLL_TYPE_FENCE_RING:
+	case PMIXP_COLL_TYPE_FENCE_TREE:
 		break;
 	default:
+		type = PMIXP_COLL_TYPE_FENCE_TREE;
 		/* check the info keys */
 		if (info) {
 			for (i = 0; i < ninfo; i++) {
 				if (0 == strncmp(info[i].key, PMIX_COLLECT_DATA, PMIX_MAX_KEYLEN)) {
-					if (pmixp_info_srv_direct_conn()) {
-						/* use the ring coll with dconn only */
-						type = PMIXP_COLL_TYPE_FENCE_RING;
-					}
+					type = PMIXP_COLL_TYPE_FENCE_RING;
+				} else {
+					type = PMIXP_COLL_TYPE_FENCE_TREE;
 				}
 			}
 		}
@@ -146,7 +143,8 @@ static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
 		status = PMIX_ERROR;
 		goto error;
 	}
-	ret = pmixp_coll_contrib_local(coll, type, data, ndata, cbfunc, cbdata);
+	ret = pmixp_coll_contrib_local(coll, type, data,
+				       ndata, cbfunc, cbdata);
 	xfree(procs);
 
 	if (SLURM_SUCCESS != ret) {
