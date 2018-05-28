@@ -443,7 +443,7 @@ static int _env_set(char ***env)
 	if (p) {
 		if (!xstrcmp("1", p) || !xstrcasecmp("true", p) ||
 		    !xstrcasecmp("yes", p)) {
-			_srv_use_direct_conn_early = true;
+			_srv_use_direct_conn_early = _srv_use_direct_conn & true;
 		} else if (!xstrcmp("0", p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
 			_srv_use_direct_conn_early = false;

@@ -1772,7 +1772,7 @@ void pmixp_server_init_cperf(char ***env)
 	}
 }
 
-bool pmixp_server_want_cperf()
+bool pmixp_server_want_cperf(void)
 {
 	return _pmixp_cperf_on;
 }
@@ -1875,7 +1875,7 @@ static int _pmixp_server_cperf_iter(char *data, int ndata)
  * In this case communication exchange will be done between
  * the first two nodes.
  */
-void pmixp_server_run_cperf()
+void pmixp_server_run_cperf(void)
 {
 	int size;
 	size_t start, end, bound;
@@ -1911,6 +1911,80 @@ void pmixp_server_run_cperf()
 		}
 		xfree(data);
 	}
+}
+
+static void _direct_init_sent_buf_cb(int rc, pmixp_p2p_ctx_t ctx, void *data)
+{
+	Buf buf = (Buf) data;
+	FREE_NULL_BUFFER(buf);
+	return;
+}
+
+int pmixp_direct_conn_early(void)
+{
+	pmixp_coll_t *coll[PMIXP_COLL_TYPE_FENCE_MAX] = { NULL };
+	int rc, i, ncoll = 0;
+	pmixp_proc_t proc;
+	pmixp_coll_fence_type_t fence_type =
+			pmixp_info_srv_fence_coll_type();
+
+	pmixp_debug_hang(0);
+
+	proc.rank = pmixp_lib_get_wildcard();
+	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
+
+	switch(fence_type) {
+	case PMIXP_FENCE_AUTO:
+	case PMIXP_FENCE_TREE:
+		coll[PMIXP_COLL_TYPE_FENCE] =
+				pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE,
+						     &proc, 1);
+		ncoll++;
+		if (fence_type == PMIXP_FENCE_TREE) {
+			break;
+		}
+	case PMIXP_FENCE_RING:
+		coll[PMIXP_COLL_TYPE_FENCE_RING] =
+				pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_RING,
+						     &proc, 1);
+		ncoll++;
+		if (fence_type == PMIXP_FENCE_RING) {
+			break;
+		}
+	}
+
+	for (i = 0; i < ncoll; i++) {
+		if (coll[i]) {
+			pmixp_ep_t ep = {0};
+			Buf buf = pmixp_server_buf_new();
+
+			ep.type = PMIXP_EP_NOIDEID;
+
+			switch (coll[i]->type) {
+			case PMIXP_COLL_TYPE_FENCE:
+				ep.ep.nodeid = coll[i]->state.tree.prnt_peerid;
+				break;
+			case PMIXP_COLL_TYPE_FENCE_RING:
+				/* calculate the id of the next ring neighbor */
+				ep.ep.nodeid = (coll[i]->my_peerid + 1) %
+						coll[i]->peers_cnt;
+				break;
+			default:
+				PMIXP_ERROR("Unknown coll type");
+				return SLURM_ERROR;
+			}
+
+			rc = pmixp_server_send_nb(
+				&ep, PMIXP_MSG_INIT_DIRECT, coll[i]->seq,
+				buf, _direct_init_sent_buf_cb, NULL);
+
+			if (SLURM_SUCCESS != rc) {
+				PMIXP_ERROR_STD("send init msg error");
+				return SLURM_ERROR;
+			}
+		}
+	}
+	return SLURM_SUCCESS;
 }
 
 #endif

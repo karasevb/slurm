@@ -133,10 +133,10 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 		rc = pmixp_coll_ring_init(coll);
 		break;
 	default:
+		PMIXP_ERROR("Unknown coll type");
 		rc = SLURM_FAILURE;
 	}
 	hostlist_destroy(hl);
-
 	if (rc) {
 		goto exit;
 	}
