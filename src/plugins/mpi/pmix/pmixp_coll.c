@@ -168,3 +168,23 @@ void pmixp_coll_free(pmixp_coll_t *coll)
 	}
 	xfree(coll);
 }
+
+int pmixp_coll_belong_chk(const pmixp_proc_t *procs, size_t nprocs)
+{
+	int i;
+	pmixp_namespace_t *nsptr = pmixp_nspaces_local();
+	/* Find my namespace in the range */
+	for (i = 0; i < nprocs; i++) {
+		if (0 != xstrcmp(procs[i].nspace, nsptr->name)) {
+			continue;
+		}
+		if (pmixp_lib_is_wildcard(procs[i].rank))
+			return 0;
+		if (0 <= pmixp_info_taskid2localid(procs[i].rank)) {
+			return 0;
+		}
+	}
+	/* we don't participate in this collective! */
+	PMIXP_ERROR("Have collective that doesn't include this job's namespace");
+	return -1;
+}

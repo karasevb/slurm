@@ -137,7 +137,7 @@ pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
 	 * concurent thread already created it while we were doing the
 	 * first search */
 
-	if (pmixp_coll_tree_belong_chk(type, procs, nprocs)) {
+	if (pmixp_coll_belong_chk(procs, nprocs)) {
 		return NULL;
 	}
 

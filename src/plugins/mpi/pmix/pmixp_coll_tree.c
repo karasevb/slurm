@@ -185,27 +185,6 @@ int pmixp_coll_tree_unpack_info(Buf buf, pmixp_coll_type_t *type,
 	return SLURM_SUCCESS;
 }
 
-int pmixp_coll_tree_belong_chk(pmixp_coll_type_t type,
-			       const pmixp_proc_t *procs, size_t nprocs)
-{
-	int i;
-	pmixp_namespace_t *nsptr = pmixp_nspaces_local();
-	/* Find my namespace in the range */
-	for (i = 0; i < nprocs; i++) {
-		if (0 != xstrcmp(procs[i].nspace, nsptr->name)) {
-			continue;
-		}
-		if (pmixp_lib_is_wildcard(procs[i].rank))
-			return 0;
-		if (0 <= pmixp_info_taskid2localid(procs[i].rank)) {
-			return 0;
-		}
-	}
-	/* we don't participate in this collective! */
-	PMIXP_ERROR("Have collective that doesn't include this job's namespace");
-	return -1;
-}
-
 static void _reset_coll_ufwd(pmixp_coll_t *coll)
 {
 	pmixp_coll_tree_t *tree = &coll->state.tree;

@@ -281,8 +281,6 @@ bool pmixp_coll_tree_progress(pmixp_coll_t *coll, char *fwd_node,
 int pmixp_coll_tree_unpack_info(Buf buf, pmixp_coll_type_t *type,
 				int *nodeid, pmixp_proc_t **r,
 				size_t *nr);
-int pmixp_coll_tree_belong_chk(pmixp_coll_type_t type,
-			       const pmixp_proc_t *procs, size_t nprocs);
 void pmixp_coll_tree_reset_if_to(pmixp_coll_t *coll, time_t ts);
 inline int pmixp_coll_tree_check_seq(pmixp_coll_t *coll, uint32_t seq);
 
@@ -319,5 +317,6 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, pmixp_coll_type_t type,
 			     char *data, size_t ndata,
 			     void *cbfunc, void *cbdata);
 void pmixp_coll_free(pmixp_coll_t *coll);
+int pmixp_coll_belong_chk(const pmixp_proc_t *procs, size_t nprocs);
 
 #endif /* PMIXP_COLL_RING_H */
