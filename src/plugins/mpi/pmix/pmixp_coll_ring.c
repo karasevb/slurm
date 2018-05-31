@@ -43,10 +43,9 @@
 #include "pmixp_client.h"
 
 typedef struct {
+	pmixp_coll_t *coll;
 	pmixp_coll_ring_ctx_t *coll_ctx;
 	Buf buf;
-	uint32_t seq;
-	volatile uint32_t refcntr;
 } pmixp_coll_ring_cbdata_t;
 
 static inline int _ring_prev_id(pmixp_coll_t *coll)
@@ -76,9 +75,9 @@ static inline uint32_t _ring_remain_contrib(pmixp_coll_ring_ctx_t *coll_ctx)
 			(coll_ctx->contrib_prev + coll_ctx->contrib_local);
 }
 
-static inline uint32_t _ring_send_is_done(pmixp_coll_ring_ctx_t *coll_ctx)
+static inline uint32_t _ring_fwd_done(pmixp_coll_ring_ctx_t *coll_ctx)
 {
-	return !(coll_ctx->coll->peers_cnt - coll_ctx->complete_cnt);
+	return !(coll_ctx->coll->peers_cnt - coll_ctx->forward_cnt - 1);
 }
 
 static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
@@ -92,10 +91,12 @@ static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 		slurm_mutex_lock(&_ctx_get_coll(coll_ctx)->lock);
 	}
 
+	PMIXP_DEBUG("called %d", coll_ctx->seq);
+
 	pmixp_coll_sanity_check(coll_ctx->coll);
 	pmixp_server_buf_reset(cbdata->buf);
 	list_push(ring->fwrd_buf_pool, cbdata->buf);
-	coll_ctx->complete_cnt++;
+	coll_ctx->forward_cnt++;
 
 	pmixp_coll_ring_progress(coll_ctx);
 
@@ -214,6 +215,16 @@ static Buf _get_fwd_buf(pmixp_coll_ring_ctx_t *coll_ctx)
 	return buf;
 }
 
+static Buf _get_contrib_buf(pmixp_coll_ring_ctx_t *coll_ctx)
+{
+	pmixp_coll_ring_t *ring = _ctx_get_coll_ring(coll_ctx);
+	Buf ring_buf = list_pop(ring->ring_buf_pool);
+	if (!ring_buf) {
+		ring_buf = pmixp_server_buf_new();
+	}
+	return ring_buf;
+}
+
 static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_id,
 			       uint32_t hop_seq, void *data, size_t size)
 {
@@ -273,38 +284,27 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	coll_ctx->state = PMIXP_COLL_RING_SYNC;
 	coll_ctx->contrib_local = false;
 	coll_ctx->contrib_prev = 0;
-	coll_ctx->complete_cnt = 0;
+	coll_ctx->forward_cnt = 0;
 	coll->ts = time(NULL);
 	memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
-	set_buf_offset(coll_ctx->ring_buf, 0);
+	coll_ctx->ring_buf = NULL;
 }
 
 static void _libpmix_cb(void *_vcbdata)
 {
 	pmixp_coll_ring_cbdata_t *cbdata = (pmixp_coll_ring_cbdata_t*)_vcbdata;
-	pmixp_coll_ring_ctx_t *coll_ctx = cbdata->coll_ctx;
-	pmixp_coll_t *coll = coll_ctx->coll;
+	pmixp_coll_t *coll = cbdata->coll;
+	Buf buf = cbdata->buf;
 
-	pmixp_coll_ring_ctx_sanity_check(coll_ctx);
-
-	/* lock the collective */
+	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
 
-	if (cbdata->seq != coll_ctx->seq) {
-		/* it seems like this collective was reset since the time
-		 * we initiated this send.
-		 * Just exit to avoid data corruption.
-		 */
-		PMIXP_ERROR("%p: collective was reset: myseq=%u, curseq=%u",
-			    coll, cbdata->seq, coll->seq);
-		goto exit;
-	}
-	xassert(PMIXP_COLL_RING_FINALIZING == coll_ctx->state);
-	coll_ctx->complete_cnt++;
-	pmixp_coll_ring_progress(coll_ctx);
-exit:
-	/* unlock the collective */
+	list_push(coll->state.ring.ring_buf_pool, buf);
+
+	/* unlock the structure */
 	slurm_mutex_unlock(&coll->lock);
+
+	xfree(cbdata);
 }
 
 void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx)
@@ -320,35 +320,36 @@ void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx)
 		switch(coll_ctx->state) {
 		case PMIXP_COLL_RING_SYNC:
 			if (coll_ctx->contrib_local || coll_ctx->contrib_prev) {
-				coll_ctx->state = PMIXP_COLL_RING_COLLECT;
+				coll_ctx->state = PMIXP_COLL_RING_PROGRESS;
 				ret = true;
 			}
 			break;
-		case PMIXP_COLL_RING_COLLECT:
-			/* check for all data is delivered */
-			if (!_ring_remain_contrib(coll_ctx)) {
-				coll_ctx->state = PMIXP_COLL_RING_FINALIZING;
-				if (coll->cbfunc) {
-					pmixp_coll_ring_cbdata_t *cbdata;
-
-					cbdata = xmalloc(sizeof(pmixp_coll_ring_cbdata_t));
-					cbdata->coll_ctx = coll_ctx;
-					cbdata->seq = coll_ctx->seq;
-					pmixp_lib_modex_invoke(coll->cbfunc, SLURM_SUCCESS,
-							       get_buf_data(coll_ctx->ring_buf),
-							       get_buf_offset(coll_ctx->ring_buf),
-							       coll->cbdata, _libpmix_cb, (void *)cbdata);
-				}
-				coll->seq++;
+		case PMIXP_COLL_RING_PROGRESS:
+			/* check for all data is collected and forwarded */
+			if (!_ring_remain_contrib(coll_ctx) && _ring_fwd_done(coll_ctx)) {
+				coll_ctx->state = PMIXP_COLL_RING_FINILIZE;
+				ret = true;
 			}
 			break;
-		case PMIXP_COLL_RING_FINALIZING:
-			/* check of sending all data is complete */
-			if (_ring_send_is_done(coll_ctx)) {
-				PMIXP_ERROR("%p: %s seq=%d is DONE", coll,
-					    pmixp_coll_type2str(coll->type), coll_ctx->seq);
-				_reset_coll_ring(coll_ctx);
+		case PMIXP_COLL_RING_FINILIZE:
+			if (coll->cbfunc) {
+				pmixp_coll_ring_cbdata_t *cbdata;
+
+				cbdata = xmalloc(sizeof(pmixp_coll_ring_cbdata_t));
+				cbdata->coll = coll;
+				cbdata->coll_ctx = coll_ctx;
+				cbdata->buf = coll_ctx->ring_buf;
+				pmixp_lib_modex_invoke(coll->cbfunc, SLURM_SUCCESS,
+						       get_buf_data(coll_ctx->ring_buf),
+						       get_buf_offset(coll_ctx->ring_buf),
+						       coll->cbdata, _libpmix_cb, (void *)cbdata);
 			}
+#ifdef PMIXP_COLL_DEBUG
+			PMIXP_ERROR("%p: %s seq=%d is DONE", coll,
+				    pmixp_coll_type2str(coll->type), coll_ctx->seq);
+#endif
+			coll->seq++;
+			_reset_coll_ring(coll_ctx);
 			break;
 		default:
 			PMIXP_ERROR("%p: unknown state = %d",
@@ -357,7 +358,7 @@ void pmixp_coll_ring_progress(pmixp_coll_ring_ctx_t *coll_ctx)
 	} while(ret);
 }
 
-static void _free_from_fwd_pool(void *p)
+static void _free_from_buf_pool(void *p)
 {
 	Buf buf = (Buf)p;
 	free_buf(buf);
@@ -384,6 +385,7 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 	if (ret && !ret->in_use) {
 		ret->in_use = true;
 		ret->seq = seq;
+		ret->ring_buf = _get_contrib_buf(ret);
 	}
 	return ret;
 }
@@ -395,7 +397,8 @@ int pmixp_coll_ring_init(pmixp_coll_t *coll)
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 	pmixp_coll_ring_t *ring = &coll->state.ring;
 
-	ring->fwrd_buf_pool = list_create(_free_from_fwd_pool);
+	ring->fwrd_buf_pool = list_create(_free_from_buf_pool);
+	ring->ring_buf_pool = list_create(_free_from_buf_pool);
 
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
@@ -404,7 +407,7 @@ int pmixp_coll_ring_init(pmixp_coll_t *coll)
 		coll_ctx->seq = coll->seq;
 		coll_ctx->contrib_local = false;
 		coll_ctx->contrib_prev = 0;
-		coll_ctx->ring_buf = create_buf(NULL, 0);
+		//coll_ctx->ring_buf = create_buf(NULL, 0);
 		coll_ctx->state = PMIXP_COLL_RING_SYNC;
 		coll_ctx->contrib_map = xmalloc(sizeof(bool) * coll->peers_cnt); // TODO bit vector
 		memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
@@ -424,6 +427,7 @@ void pmixp_coll_ring_free(pmixp_coll_ring_t *ring)
 		xfree(coll_ctx->contrib_map);
 	}
 	list_destroy(ring->fwrd_buf_pool);
+	list_destroy(ring->ring_buf_pool);
 }
 
 int pmixp_coll_ring_contrib_local(pmixp_coll_t *coll, char *data, size_t size,
