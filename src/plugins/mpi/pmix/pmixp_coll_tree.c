@@ -503,8 +503,6 @@ static void _libpmix_cb(void *_vcbdata)
 	pmixp_coll_t *coll = cbdata->coll;
 	pmixp_coll_tree_t *tree = &coll->state.tree;
 
-	sleep(1);
-
 	/* lock the collective */
 	slurm_mutex_lock(&coll->lock);
 
@@ -884,7 +882,7 @@ static int _progress_dfwd(pmixp_coll_t *coll)
 		abort();
 	}
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_ERROR("%p: %s seq=%d is DONE", coll,
+	PMIXP_DEBUG("%p: %s seq=%d is DONE", coll,
 		    pmixp_coll_type2str(coll->type), coll->seq);
 #endif
 	_reset_coll(coll);
