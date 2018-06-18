@@ -260,3 +260,18 @@ int pmixp_coll_belong_chk(const pmixp_proc_t *procs, size_t nprocs)
 	PMIXP_ERROR("No process controlled by this slurmstepd is involved in this collective.");
 	return -1;
 }
+
+void pmixp_coll_log(pmixp_coll_t *coll)
+{
+	PMIXP_ERROR("Dumping collective state");
+	switch(coll->type) {
+	case PMIXP_COLL_TYPE_FENCE_RING:
+		pmixp_coll_ring_log(coll);
+		break;
+	case PMIXP_COLL_TYPE_FENCE_TREE:
+		pmixp_coll_tree_log(coll);
+		break;
+	default:
+		break;
+	}
+}

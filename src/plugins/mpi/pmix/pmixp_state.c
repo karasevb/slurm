@@ -48,6 +48,31 @@ pmixp_state_t _pmixp_state;
 void _xfree_coll(void *x)
 {
 	pmixp_coll_t *coll = (pmixp_coll_t *)x;
+
+	/* check for collective in a not-SYNC state - something went wrong */
+	switch(coll->type) {
+	case PMIXP_COLL_TYPE_FENCE_TREE:
+		if (PMIXP_COLL_TREE_SYNC != coll->state.tree.state) {
+			pmixp_coll_log(coll);
+		}
+		break;
+	case PMIXP_COLL_TYPE_FENCE_RING: {
+		int i, ctx_in_use = 0;
+		for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+			pmixp_coll_ring_ctx_t *coll_ctx = &coll->state.ring.ctx_array[i];
+			if (coll_ctx->in_use) {
+				ctx_in_use++;
+			}
+		}
+		if (ctx_in_use) {
+			pmixp_coll_log(coll);
+		}
+		break;
+	}
+	default:
+		PMIXP_ERROR("Unknown collective type %d", coll->type);
+		break;
+	}
 	pmixp_coll_free(coll);
 }
 
