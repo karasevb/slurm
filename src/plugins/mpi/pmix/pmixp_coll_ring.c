@@ -233,7 +233,7 @@ static Buf _get_contrib_buf(pmixp_coll_ring_ctx_t *coll_ctx)
 	pmixp_coll_ring_t *ring = _ctx_get_coll_ring(coll_ctx);
 	Buf ring_buf = list_pop(ring->ring_buf_pool);
 	if (!ring_buf) {
-		ring_buf = pmixp_server_buf_new();
+		ring_buf = create_buf(NULL, 0);
 	}
 	return ring_buf;
 }
@@ -317,7 +317,9 @@ static void _libpmix_cb(void *_vcbdata)
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
 
-	pmixp_server_buf_reset(buf);
+	/* reset buf */
+	buf->processed = 0;
+	/* push it back to pool for reuse */
 	list_push(coll->state.ring.ring_buf_pool, buf);
 
 	/* unlock the structure */
@@ -513,13 +515,13 @@ inline static int _pmixp_coll_contrib(pmixp_coll_ring_ctx_t *coll_ctx, int contr
 
 	/* save contribution */
 	if (!size_buf(coll_ctx->ring_buf)) {
-		pmixp_server_buf_reserve(coll_ctx->ring_buf, size * coll->peers_cnt);
+		grow_buf(coll_ctx->ring_buf, size * coll->peers_cnt);
 	} else if(remaining_buf(coll_ctx->ring_buf) < size) {
-		size_t new_size = size_buf(coll_ctx->ring_buf) + size *
+		uint32_t new_size = size_buf(coll_ctx->ring_buf) + size *
 				_ring_remain_contrib(coll_ctx);
-		pmixp_server_buf_reserve(coll_ctx->ring_buf, new_size);
+		grow_buf(coll_ctx->ring_buf, new_size);
 	}
-	pmixp_server_buf_reserve(coll_ctx->ring_buf, size);
+	grow_buf(coll_ctx->ring_buf, size);
 	data_ptr = get_buf_data(coll_ctx->ring_buf) +
 			get_buf_offset(coll_ctx->ring_buf);
 	memcpy(data_ptr, data, size);
