@@ -1,10 +1,8 @@
 /*****************************************************************************\
- **  pmix_state.h - PMIx agent state related code
+ **  pmixp_alloc.c - PMIx allocate resource primitives
  *****************************************************************************
- *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
- *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
- *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
+ *  Copyright (C) 2018      Mellanox Technologies. All rights reserved.
+ *  Written by Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -36,56 +34,5 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA.
  \*****************************************************************************/
 
-#ifndef PMIXP_STATE_H
-#define PMIXP_STATE_H
-
 #include "pmixp_common.h"
-#include "pmixp_debug.h"
-#include "pmixp_io.h"
-#include "pmixp_coll.h"
-#include "pmixp_dmdx.h"
 #include "pmixp_alloc.h"
-
-/*
- * PMIx plugin state structure
- */
-
-typedef struct {
-#ifndef NDEBUG
-#define PMIXP_STATE_MAGIC 0xFEEDCAFE
-	int magic;
-#endif
-	List coll;
-    List alloc;
-	eio_handle_t *srv_handle;
-	pthread_mutex_t lock;
-} pmixp_state_t;
-
-extern pmixp_state_t _pmixp_state;
-
-/*
- * General PMIx plugin state manipulation functions
- */
-
-int pmixp_state_init(void);
-void pmixp_state_finalize(void);
-
-static inline void pmixp_state_sanity_check(void)
-{
-	xassert(_pmixp_state.magic == PMIXP_STATE_MAGIC);
-}
-
-/*
- * Collective state
- */
-
-pmixp_coll_t *pmixp_state_coll_get(pmixp_coll_type_t type,
-				   const pmixp_proc_t *ranges,
-				   size_t nranges);
-pmixp_coll_t *pmixp_state_coll_new(pmixp_coll_type_t type,
-				   const pmixp_proc_t *ranges,
-				   size_t nranges);
-
-void pmixp_state_coll_cleanup(void);
-
-#endif /* PMIXP_STATE_H */
