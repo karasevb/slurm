@@ -304,7 +304,6 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 	coll_ctx->contrib_local = false;
 	coll_ctx->contrib_prev = 0;
 	coll_ctx->forward_cnt = 0;
-	coll->ts = time(NULL);
 	memset(coll_ctx->contrib_map, 0, sizeof(bool) * coll->peers_cnt);
 	coll_ctx->ring_buf = NULL;
 }
@@ -391,6 +390,7 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 				/* increase coll sequence */
 				coll->seq++;
 				_reset_coll_ring(coll_ctx);
+				coll->ts = time(NULL);
 				ret = true;
 
 			}
@@ -423,7 +423,10 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_new(pmixp_coll_t *coll)
 				break;
 			case PMIXP_COLL_RING_SYNC:
 			case PMIXP_COLL_RING_PROGRESS:
-				if (!ret_ctx && !coll_ctx->contrib_local) {
+				if (coll_ctx->contrib_local) {
+					break;
+				}
+				if (coll_ctx->seq == coll->seq) {
 					ret_ctx = coll_ctx;
 				}
 				break;
@@ -720,24 +723,38 @@ void pmixp_coll_ring_reset_if_to(pmixp_coll_t *coll, time_t ts) {
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
+
+	if (ts - coll->ts <= pmixp_info_timeout()) {
+		goto exit;
+	}
+
+	/* report the timeout event */
+	PMIXP_ERROR("%p: collective timeout seq=%d",
+		    coll, coll->seq);
+	pmixp_coll_log(coll);
+
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &coll->state.ring.ctx_array[i];
-		if (!coll_ctx->in_use ||
+		if (!coll_ctx->in_use || !coll_ctx->contrib_local ||
 		    (PMIXP_COLL_RING_SYNC == coll_ctx->state)) {
 			continue;
 		}
-		if (ts - coll->ts > pmixp_info_timeout()) {
+		if (PMIXP_COLL_RING_PROGRESS == coll_ctx->state) {
 			/* respond to the libpmix */
 			pmixp_coll_localcb_nodata(coll, PMIXP_ERR_TIMEOUT);
-
-			/* report the timeout event */
-			PMIXP_ERROR("%p: collective timeout seq=%d",
-				    coll, coll_ctx->seq);
-			pmixp_coll_log(coll);
-			/* drop the collective */
-			_reset_coll_ring(coll_ctx);
 		}
+		/* current collective is reseted, increase the coll seq
+		 * to go to the next collective */
+		coll->seq++;
+		_reset_coll_ring(coll_ctx);
 	}
+#ifdef PMIXP_COLL_DEBUG
+		PMIXP_DEBUG("%p: %s seq=%d reset by timeout", coll,
+			    pmixp_coll_type2str(coll->type),
+			    coll_ctx->seq);
+#endif
+	coll->ts = time(NULL);
+exit:
 	/* unlock the structure */
 	slurm_mutex_unlock(&coll->lock);
 }
