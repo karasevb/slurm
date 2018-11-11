@@ -354,6 +354,7 @@ static void _invoke_callback(pmixp_coll_ring_ctx_t *coll_ctx)
 	 */
 	coll->cbfunc = NULL;
 	coll->cbdata = NULL;
+	coll_ctx->ring_buf = NULL;
 }
 
 static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
@@ -509,7 +510,6 @@ void pmixp_coll_ring_free(pmixp_coll_ring_t *ring)
 	pmixp_coll_ring_ctx_t *coll_ctx;
 	for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 		coll_ctx = &ring->ctx_array[i];
-		FREE_NULL_BUFFER(coll_ctx->ring_buf);
 		xfree(coll_ctx->contrib_map);
 	}
 	list_destroy(ring->fwrd_buf_pool);
