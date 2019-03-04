@@ -712,7 +712,10 @@ extern int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 
 	if (PMIXP_COLL_TYPE_FENCE_MAX == type) {
 		type = PMIXP_COLL_TYPE_FENCE_TREE;
-		if (collect) {
+		/* As practice shows the Tree algorithm show the better
+		 * performance for fence with zero data. Therefore,
+		 * if ndata is zero, the Ring algorithm is not used. */
+		if (collect && (ndata > 0)) {
 			type = PMIXP_COLL_TYPE_FENCE_RING;
 		}
 	}
