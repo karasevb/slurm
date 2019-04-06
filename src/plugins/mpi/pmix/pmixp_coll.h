@@ -43,10 +43,12 @@
 
 #define PMIXP_COLL_DEBUG 1
 #define PMIXP_COLL_RING_CTX_NUM 3
+#define PMIXP_COLL_BRUCK_CTX_NUM 3
 
 typedef enum {
 	PMIXP_COLL_TYPE_FENCE_TREE = 0,
 	PMIXP_COLL_TYPE_FENCE_RING,
+	PMIXP_COLL_TYPE_FENCE_BRUCK,
 	/* reserve coll fence ids up to 15 */
 	PMIXP_COLL_TYPE_FENCE_MAX = 15,
 
@@ -61,6 +63,8 @@ pmixp_coll_type2str(pmixp_coll_type_t type) {
 		return "COLL_FENCE_TREE";
 	case PMIXP_COLL_TYPE_FENCE_RING:
 		return "COLL_FENCE_RING";
+	case PMIXP_COLL_TYPE_FENCE_BRUCK:
+		return "COLL_FENCE_BRUCK";
 	case PMIXP_COLL_TYPE_FENCE_MAX:
 		return "COLL_FENCE_MAX";
 	default:
@@ -71,6 +75,7 @@ pmixp_coll_type2str(pmixp_coll_type_t type) {
 typedef enum {
 	PMIXP_COLL_CPERF_TREE = PMIXP_COLL_TYPE_FENCE_TREE,
 	PMIXP_COLL_CPERF_RING = PMIXP_COLL_TYPE_FENCE_RING,
+	PMIXP_COLL_CPERF_BRUCK = PMIXP_COLL_TYPE_FENCE_BRUCK,
 	PMIXP_COLL_CPERF_MIXED = PMIXP_COLL_TYPE_FENCE_MAX,
 	PMIXP_COLL_CPERF_BARRIER
 } pmixp_coll_cperf_mode_t;
@@ -82,6 +87,8 @@ pmixp_coll_cperf_mode2str(pmixp_coll_cperf_mode_t mode) {
 		return "PMIXP_COLL_CPERF_RING";
 	case PMIXP_COLL_CPERF_TREE:
 		return "PMIXP_COLL_CPERF_TREE";
+	case PMIXP_COLL_CPERF_BRUCK:
+		return "PMIXP_COLL_CPERF_BRUCK";
 	case PMIXP_COLL_CPERF_MIXED:
 		return "PMIXP_COLL_CPERF_MIXED";
 	case PMIXP_COLL_CPERF_BARRIER:
@@ -250,6 +257,46 @@ pmixp_coll_ring_state2str(pmixp_ring_state_t state)
 	}
 }
 
+/* PMIx Bruck collective */
+typedef enum {
+	PMIXP_COLL_BRUCK_SYNC,
+	PMIXP_COLL_BRUCK_PROGRESS,
+} pmixp_bruck_state_t;
+
+typedef struct {
+	/* ptr to coll data */
+	struct pmixp_coll_s *coll;
+
+	/* context data */
+	bool in_use;
+	uint32_t seq;
+	/* step number, max step is log2(nprocs) */
+	int step_cnt;
+	bool contrib_local;
+	bool recv_complete;
+	bool send_complete;
+	pmixp_bruck_state_t state;
+	Buf bruck_buf;
+	int step_num;
+} pmixp_coll_bruck_ctx_t;
+
+/* coll Bruck struct */
+typedef struct {
+	List bruck_buf_pool;
+	List recv_buf_pool;
+	List recv_message_pool;
+	pmixp_coll_bruck_ctx_t ctx_array[PMIXP_COLL_BRUCK_CTX_NUM];
+} pmixp_coll_bruck_t;
+
+typedef struct {
+	uint32_t seq;
+	uint32_t type;
+	uint32_t step;
+	uint32_t nodeid;
+	uint32_t contrib_id;
+	size_t msgsize;
+} pmixp_coll_bruck_msg_hdr_t;
+
 /* General coll struct */
 typedef struct pmixp_coll_s {
 #ifndef NDEBUG
@@ -287,6 +334,7 @@ typedef struct pmixp_coll_s {
 	union {
 		pmixp_coll_tree_t tree;
 		pmixp_coll_ring_t ring;
+		pmixp_coll_bruck_t bruck;
 	} state;
 } pmixp_coll_t;
 
@@ -329,7 +377,17 @@ pmixp_coll_ring_ctx_t *pmixp_coll_ring_ctx_select(pmixp_coll_t *coll,
 pmixp_coll_t *pmixp_coll_ring_from_cbdata(void *cbdata);
 void pmixp_coll_ring_free(pmixp_coll_ring_t *ring);
 
-
+/* Bruck coll functions */
+int pmixp_coll_bruck_init(pmixp_coll_t *coll, hostlist_t *hl);
+int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
+			   void *cbfunc, void *cbdata);
+int pmixp_coll_bruck_remote(pmixp_coll_t *coll, pmixp_coll_bruck_msg_hdr_t *hdr,
+			    Buf *buf);
+int pmixp_coll_bruck_unpack(Buf buf, pmixp_coll_type_t *type,
+			   pmixp_coll_bruck_msg_hdr_t *bruck_hdr,
+			   pmixp_proc_t **r, size_t *nr);
+void pmixp_coll_bruck_free(pmixp_coll_bruck_t *bruck);
+pmixp_coll_t *pmixp_coll_bruck_from_cbdata(void *cbdata);
 
 /* common coll func */
 static inline void pmixp_coll_sanity_check(pmixp_coll_t *coll)

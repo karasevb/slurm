@@ -160,6 +160,10 @@ int pmixp_coll_contrib_local(pmixp_coll_t *coll, pmixp_coll_type_t type,
 		ret = pmixp_coll_ring_local(coll, data, ndata,
 					    cbfunc, cbdata);
 		break;
+	case PMIXP_COLL_TYPE_FENCE_BRUCK:
+		ret = pmixp_coll_bruck_local(coll, data, ndata,
+					     cbfunc, cbdata);
+		break;
 	default:
 		ret = SLURM_FAILURE;
 		break;
@@ -204,6 +208,9 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 	case PMIXP_COLL_TYPE_FENCE_RING:
 		rc = pmixp_coll_ring_init(coll, &hl);
 		break;
+	case PMIXP_COLL_TYPE_FENCE_BRUCK:
+		rc = pmixp_coll_bruck_init(coll, &hl);
+		break;
 	default:
 		PMIXP_ERROR("Unknown coll type");
 		rc = SLURM_FAILURE;
@@ -219,6 +226,7 @@ exit:
 
 void pmixp_coll_free(pmixp_coll_t *coll)
 {
+	int i, ctx_in_use;
 	pmixp_coll_sanity_check(coll);
 
 	if (NULL != coll->pset.procs) {
@@ -237,8 +245,7 @@ void pmixp_coll_free(pmixp_coll_t *coll)
 		break;
 	case PMIXP_COLL_TYPE_FENCE_RING:
 	{
-		int i, ctx_in_use = 0;
-		for (i = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+		for (i = 0, ctx_in_use = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
 			pmixp_coll_ring_ctx_t *coll_ctx =
 				&coll->state.ring.ctx_array[i];
 			if (coll_ctx->in_use)
@@ -247,6 +254,19 @@ void pmixp_coll_free(pmixp_coll_t *coll)
 		if (ctx_in_use)
 			pmixp_coll_log(coll);
 		pmixp_coll_ring_free(&coll->state.ring);
+		break;
+	}
+	case PMIXP_COLL_TYPE_FENCE_BRUCK:
+	{
+		for (i = 0, ctx_in_use = 0; i < PMIXP_COLL_RING_CTX_NUM; i++) {
+			pmixp_coll_bruck_ctx_t *coll_ctx =
+				&coll->state.bruck.ctx_array[i];
+			if (coll_ctx->in_use)
+				ctx_in_use++;
+		}
+		if (ctx_in_use)
+			pmixp_coll_log(coll);
+		pmixp_coll_bruck_free(&coll->state.bruck);
 		break;
 	}
 	default:
@@ -287,6 +307,7 @@ void pmixp_coll_log(pmixp_coll_t *coll)
 		pmixp_coll_tree_log(coll);
 		break;
 	default:
+		PMIXP_ERROR("Unknown collective type");
 		break;
 	}
 }

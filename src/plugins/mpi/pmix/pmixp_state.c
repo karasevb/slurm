@@ -181,6 +181,9 @@ void pmixp_state_coll_cleanup(void)
 		case PMIXP_COLL_TYPE_FENCE_RING:
 			pmixp_coll_ring_reset_if_to(coll, ts);
 			break;
+		case PMIXP_COLL_TYPE_FENCE_BRUCK:
+			PMIXP_DEBUG("Not implemented");
+			break;
 		default:
 			PMIXP_ERROR("Unknown coll type");
 		}

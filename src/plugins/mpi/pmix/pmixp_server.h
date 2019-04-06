@@ -49,7 +49,8 @@ typedef enum {
 #ifndef NDEBUG
 	PMIXP_MSG_PINGPONG,
 #endif
-	PMIXP_MSG_RING
+	PMIXP_MSG_RING,
+	PMIXP_MSG_BRUCK
 } pmixp_srv_cmd_t;
 
 typedef enum {

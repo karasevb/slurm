@@ -477,6 +477,8 @@ static int _env_set(char ***env)
 			_srv_fence_coll_type = PMIXP_COLL_CPERF_TREE;
 		} else if (!xstrcmp("ring", p)) {
 			_srv_fence_coll_type = PMIXP_COLL_CPERF_RING;
+		} else if (!xstrcmp("bruck", p)) {
+			_srv_fence_coll_type = PMIXP_COLL_CPERF_BRUCK;
 		}
 	}
 	p = getenvp(*env, SLURM_PMIXP_FENCE_BARRIER);
