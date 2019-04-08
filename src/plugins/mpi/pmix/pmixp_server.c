@@ -1337,34 +1337,57 @@ int pmixp_server_direct_conn_early(void)
 	}
 	for (i = 0; i < count; i++) {
 		if (coll[i]) {
-			pmixp_ep_t ep = {0};
+			pmixp_ep_t *ep;
+			int ep_num = 0, j;
 			Buf buf;
-
-			ep.type = PMIXP_EP_NOIDEID;
 
 			switch (coll[i]->type) {
 			case PMIXP_COLL_TYPE_FENCE_TREE:
-				ep.ep.nodeid = coll[i]->state.tree.prnt_peerid;
-				if (ep.ep.nodeid < 0) {
+				ep_num = 1;
+				ep = xmalloc(sizeof(*ep));
+				ep->ep.nodeid = coll[i]->state.tree.prnt_peerid;
+				if (ep->ep.nodeid < 0) {
 					/* this is the root node, it has no
 					 * the parent node to early connect */
 					continue;
 				}
 				break;
 			case PMIXP_COLL_TYPE_FENCE_RING:
+				ep_num = 1;
+				ep = xmalloc(sizeof(*ep));
 				/* calculate the id of the next ring neighbor */
-				ep.ep.nodeid = (coll[i]->my_peerid + 1) %
+				ep->ep.nodeid = (coll[i]->my_peerid + 1) %
 						coll[i]->peers_cnt;
+				break;
+			case PMIXP_COLL_TYPE_FENCE_BRUCK:
+				if (1 == coll[i]->peers_cnt) {
+					ep_num = 0;
+					continue;
+				}
+				ep_num = pmixp_int_log2(coll[i]->peers_cnt);
+				ep = xmalloc(sizeof(*ep) * ep_num);
+
+				for (j = 0; j < ep_num; j++) {
+					ep[j].ep.nodeid =
+						((coll[i]->my_peerid + coll[i]->peers_cnt) -
+						(1 << ep_num)) % coll[i]->peers_cnt;
+				}
 				break;
 			default:
 				PMIXP_ERROR("Unknown coll type");
 				return SLURM_ERROR;
 			}
 
-			buf = pmixp_server_buf_new();
-			rc = pmixp_server_send_nb(
-				&ep, PMIXP_MSG_INIT_DIRECT, coll[i]->seq,
-				buf, pmixp_server_sent_buf_cb, buf);
+			for (j = 0; j < ep_num; j++) {
+				ep[j].type = PMIXP_EP_NOIDEID;
+				buf = pmixp_server_buf_new();
+				rc = pmixp_server_send_nb(
+					&ep[j], PMIXP_MSG_INIT_DIRECT, coll[i]->seq,
+					buf, pmixp_server_sent_buf_cb, buf);
+			}
+			if (ep_num) {
+				xfree(ep);
+			}
 
 			if (SLURM_SUCCESS != rc) {
 				PMIXP_ERROR_STD("send init msg error");

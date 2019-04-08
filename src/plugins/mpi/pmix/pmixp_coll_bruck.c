@@ -57,17 +57,6 @@ typedef struct {
 
 static void _progress_coll_bruck(pmixp_coll_bruck_ctx_t *coll_ctx);
 
-static unsigned int _int_log2 (unsigned int val) {
-    if (val == 0) return UINT_MAX;
-    if (val == 1) return 0;
-    unsigned int ret = 0;
-    while (val > 1) {
-	val >>= 1;
-	ret++;
-    }
-    return ret;
-}
-
 static inline pmixp_coll_bruck_t *_ctx_get_coll_bruck(
 		pmixp_coll_bruck_ctx_t *coll_ctx)
 {
@@ -599,7 +588,7 @@ int pmixp_coll_bruck_init(pmixp_coll_t *coll, hostlist_t *hl)
 		coll_ctx->recv_complete = false;
 		coll_ctx->state = PMIXP_COLL_BRUCK_SYNC;
 		coll_ctx->step_cnt = 0;
-		coll_ctx->step_num = _int_log2(coll->peers_cnt);
+		coll_ctx->step_num = pmixp_int_log2(coll->peers_cnt);
 		// TODO bit vector
 	}
 

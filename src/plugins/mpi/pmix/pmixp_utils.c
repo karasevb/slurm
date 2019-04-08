@@ -620,3 +620,15 @@ int pmixp_mkdir(char *path, mode_t rights)
 	}
 	return 0;
 }
+
+int pmixp_int_log2(int val)
+{
+    if (val == 0) return UINT_MAX;
+    if (val == 1) return 0;
+    unsigned int ret = 0;
+    while (val > 1) {
+	val >>= 1;
+	ret++;
+    }
+    return ret;
+}
