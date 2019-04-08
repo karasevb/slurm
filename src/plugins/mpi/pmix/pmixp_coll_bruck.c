@@ -489,7 +489,7 @@ static int progress_next_step(pmixp_coll_bruck_ctx_t *coll_ctx)
 	coll_ctx->send_complete = false;
 	coll_ctx->recv_complete = false;
 
-	if (coll_ctx->step_cnt > coll_ctx->step_num) {
+	if (coll_ctx->step_cnt >= coll_ctx->step_num) {
 		return ret;
 	}
 
