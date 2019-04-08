@@ -71,6 +71,7 @@ typedef struct {
 	void *buffer;
 	size_t len;
 	void *msg;
+	volatile bool ucx_release;
 } pmixp_ucx_req_t;
 
 typedef struct {
@@ -95,8 +96,9 @@ static inline void _recv_req_release(pmixp_ucx_req_t *req)
 static void request_init(void *request)
 {
 	pmixp_ucx_req_t *req = (pmixp_ucx_req_t *) request;
-	req->status = PMIXP_UCX_ACTIVE;
 	memset(req, 0, sizeof(*req));
+	req->status = PMIXP_UCX_ACTIVE;
+	req->ucx_release = true;
 }
 
 static void send_handle(void *request, ucs_status_t status)
@@ -144,6 +146,7 @@ static void *_ucx_init(int nodeid, pmixp_p2p_data_t direct_hdr);
 static void _ucx_fini(void *_priv);
 static int _ucx_connect(void *_priv, void *ep_data, size_t ep_len,
 			void *init_msg);
+static int _ucx_send_int(void *_priv, void *msg, int was_pending);
 static int _ucx_send(void *_priv, void *msg);
 static void _ucx_regio(eio_handle_t *h);
 static void *_ucx_lib_handler = NULL;
@@ -514,9 +517,14 @@ static bool _ucx_progress()
 	count = pmixp_rlist_count(&_snd_complete);
 	for (i=0; i < count; i++) {
 		req = (pmixp_ucx_req_t *)pmixp_rlist_deq(&_snd_complete);
-		/* release request to UCX */
-		memset(req, 0, sizeof(*req));
-		ucp_request_release(req);
+		if (req->ucx_release) {
+			/* release request to UCX */
+			memset(req, 0, sizeof(*req));
+			ucp_request_release(req);
+		} else {
+			/* for deferred messages */
+			xfree(req);
+		}
 	}
 
 exit:
@@ -684,7 +692,7 @@ static int _ucx_connect(void *_priv, void *ep_data, size_t ep_len,
 		/* Send all pending messages */
 		elem = pmixp_rlist_begin(&priv->pending);
 		while (pmixp_rlist_end(&priv->pending) != elem) {
-			_ucx_send(_priv, PMIXP_LIST_VAL(elem));
+			_ucx_send_int(_priv, PMIXP_LIST_VAL(elem), 1);
 			elem = pmixp_rlist_next(&priv->pending, elem);
 		}
 	}
@@ -709,18 +717,17 @@ static int _ucx_connect(void *_priv, void *ep_data, size_t ep_len,
 	return rc;
 }
 
-
-static int _ucx_send(void *_priv, void *msg)
+static int _ucx_send_int(void *_priv, void *msg, int deferred_cb)
 {
 	pmixp_dconn_ucx_t *priv = (pmixp_dconn_ucx_t *)_priv;
 	int rc = SLURM_SUCCESS;
 	bool release = false;
+	pmixp_ucx_req_t *req = NULL;
 
 	slurm_mutex_lock(&_ucx_worker_lock);
 	if (!priv->connected) {
 		pmixp_rlist_enq(&priv->pending, msg);
 	} else {
-		pmixp_ucx_req_t *req = NULL;
 		xassert(_direct_hdr_set);
 		char *mptr = _direct_hdr.buf_ptr(msg);
 		size_t msize = _direct_hdr.buf_size(msg);
@@ -733,26 +740,40 @@ static int _ucx_send(void *_priv, void *msg)
 			PMIXP_ERROR("Unable to send UCX message: %s\n",
 				    ucs_status_string(UCS_PTR_STATUS(req)));
 			goto exit;
-		} else if (UCS_OK == UCS_PTR_STATUS(req)) {
+		} else if (UCS_OK == UCS_PTR_STATUS(req) && !deferred_cb) {
 			/* defer release until we unlock ucp worker */
 			release = true;
 		} else {
+			bool is_inline = (UCS_OK == UCS_PTR_STATUS(req)) &&
+					deferred_cb;
+			if (is_inline) {
+				req = xmalloc(sizeof(pmixp_ucx_req_t));
+				req->ucx_release = false;
+				req->status = PMIXP_UCX_COMPLETE;
+			} else {
+				req->ucx_release = true;
+			}
 			req->msg = msg;
 			req->buffer = mptr;
 			req->len = msize;
 			pmixp_rlist_enq(&_snd_pending, (void*)req);
 			_activate_progress();
-
 		}
 	}
 exit:
 	slurm_mutex_unlock(&_ucx_worker_lock);
 
 	if (release){
-		_direct_hdr.send_complete(msg, PMIXP_P2P_INLINE,
+		pmixp_p2p_ctx_t ctx = PMIXP_P2P_INLINE;
+		_direct_hdr.send_complete(msg, ctx,
 					  SLURM_SUCCESS);
 	}
 	return rc;
+}
+
+static int _ucx_send(void *_priv, void *msg)
+{
+	return _ucx_send_int(_priv, msg, 0);
 }
 
 static void _ucx_regio(eio_handle_t *h)
