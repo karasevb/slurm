@@ -47,6 +47,7 @@ typedef struct {
 	pmixp_coll_ring_ctx_t *coll_ctx;
 	Buf buf;
 	uint32_t seq;
+	uint32_t contrib_id;
 } pmixp_coll_ring_cbdata_t;
 
 static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx);
@@ -89,6 +90,9 @@ static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 	pmixp_coll_ring_ctx_t *coll_ctx = cbdata->coll_ctx;
 	pmixp_coll_t *coll = cbdata->coll;
 	Buf buf = cbdata->buf;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	pmixp_coll_sanity_check(coll);
 
@@ -108,6 +112,11 @@ static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 		goto exit;
 	}
 	coll_ctx->forward_cnt++;
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   cbdata->contrib_id);
+	tm->snd_complete_ts = PMIXP_COLL_GET_TS();
+#endif
 	_progress_coll_ring(coll_ctx);
 
 exit:
@@ -256,10 +265,11 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	uint32_t offset = 0;
 	Buf buf = _get_fwd_buf(coll_ctx);
 	int rc = SLURM_SUCCESS;
-
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	pmixp_coll_ring_ctx_sanity_check(coll_ctx);
-
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: transit data to nodeid=%d, seq=%d, hop=%d, size=%lu, contrib=%d",
 		    coll_ctx, _ring_next_id(coll), hdr.seq,
@@ -286,6 +296,11 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	cbdata->coll = coll;
 	cbdata->coll_ctx = coll_ctx;
 	cbdata->seq = coll_ctx->seq;
+	cbdata->contrib_id = contrib_id;
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq, contrib_id);
+	tm->snd_ts = PMIXP_COLL_GET_TS();
+#endif
 	rc = pmixp_server_send_nb(ep, PMIXP_MSG_RING, coll_ctx->seq, buf,
 				  _ring_sent_cb, cbdata);
 exit:
@@ -564,6 +579,9 @@ int pmixp_coll_ring_local(pmixp_coll_t *coll, char *data, size_t size,
 {
 	int ret = SLURM_SUCCESS;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -587,11 +605,15 @@ int pmixp_coll_ring_local(pmixp_coll_t *coll, char *data, size_t size,
 	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%d, size=%lu",
 		    coll_ctx, coll_ctx->seq, coll_ctx->state, size);
 #endif
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   coll->my_peerid);
+	tm->rcv_ts = PMIXP_COLL_GET_TS();
+#endif
 
 	if (_pmixp_coll_contrib(coll_ctx, coll->my_peerid, 0, data, size)) {
 		goto exit;
 	}
-
 	/* mark local contribution */
 	coll_ctx->contrib_local = true;
 	_progress_coll_ring(coll_ctx);
@@ -646,6 +668,9 @@ int pmixp_coll_ring_neighbor(pmixp_coll_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
 	char *data_ptr = NULL;
 	pmixp_coll_ring_ctx_t *coll_ctx = NULL;
 	uint32_t hop_seq;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -699,6 +724,11 @@ int pmixp_coll_ring_neighbor(pmixp_coll_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
 
 	/* mark number of individual contributions */
 	coll_ctx->contrib_map[hdr->contrib_id] = true;
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   hdr->contrib_id);
+	tm->rcv_ts = PMIXP_COLL_GET_TS();
+#endif
 
 	data_ptr = get_buf_data(buf) + get_buf_offset(buf);
 	if (_pmixp_coll_contrib(coll_ctx, hdr->contrib_id, hdr->hop_seq + 1,

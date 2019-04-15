@@ -44,6 +44,29 @@
 #define PMIXP_COLL_DEBUG 1
 #define PMIXP_COLL_RING_CTX_NUM 3
 #define PMIXP_COLL_BRUCK_CTX_NUM 3
+#define PMIXP_COLL_TIMING 1
+
+#ifdef PMIXP_COLL_TIMING
+inline static double get_time_nsec()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (ts.tv_sec + 1E-9 * ts.tv_nsec);
+}
+
+#define PMIXP_COLL_GET_TS() get_time_nsec()
+#endif
+
+#ifdef PMIXP_COLL_TIMING
+typedef struct {
+	uint32_t seq;
+	int step;
+	double snd_ts;
+	double rcv_ts;
+	double snd_complete_ts;
+	uint32_t size;
+} pmixp_coll_timing_t;
+#endif
 
 typedef enum {
 	PMIXP_COLL_TYPE_FENCE_TREE = 0,
@@ -278,6 +301,9 @@ typedef struct {
 	pmixp_bruck_state_t state;
 	Buf bruck_buf;
 	int step_num;
+#ifdef PMIXP_COLL_TIMING
+	double ts;
+#endif
 } pmixp_coll_bruck_ctx_t;
 
 /* coll Bruck struct */
@@ -336,6 +362,10 @@ typedef struct pmixp_coll_s {
 		pmixp_coll_ring_t ring;
 		pmixp_coll_bruck_t bruck;
 	} state;
+#ifdef PMIXP_COLL_TIMING
+	List timings;
+#endif
+
 } pmixp_coll_t;
 
 /* tree coll functions*/
@@ -406,5 +436,10 @@ int pmixp_coll_belong_chk(const pmixp_proc_t *procs, size_t nprocs);
 void pmixp_coll_log(pmixp_coll_t *coll);
 void pmixp_coll_ring_log(pmixp_coll_t *coll);
 void pmixp_coll_tree_log(pmixp_coll_t *coll);
+#ifdef PMIXP_COLL_TIMING
+void pmixp_coll_free_timings(void *x);
+pmixp_coll_timing_t *pmixp_coll_timing_get(pmixp_coll_t *coll, uint32_t seq,
+					   int step);
+#endif
 
 #endif /* PMIXP_COLL_RING_H */

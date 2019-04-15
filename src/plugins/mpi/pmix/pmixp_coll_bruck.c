@@ -216,6 +216,12 @@ static void _libpmix_cb(void *_cbdata)
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
 
+#ifdef PMIXP_COLL_TIMING
+	PMIXP_ERROR("coll seq %d size %d time %lf", cbdata->coll_ctx->seq,
+		    buf->processed, PMIXP_COLL_GET_TS() - cbdata->coll_ctx->ts);
+	cbdata->coll_ctx->ts = 0.0;
+#endif
+
 	/* reset buf */
 	buf->processed = 0;
 	/* push it back to pool for reuse */
@@ -277,6 +283,9 @@ static void _bruck_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 	pmixp_coll_bruck_ctx_t *coll_ctx = cbdata->coll_ctx;
 	pmixp_coll_t *coll = coll_ctx->coll;
 	Buf buf = cbdata->buf;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm;
+#endif
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: called", coll_ctx);
 #endif
@@ -294,6 +303,11 @@ static void _bruck_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 		PMIXP_DEBUG("%p: collective was reset!", coll_ctx);
 		goto exit;
 	}
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   coll_ctx->step_cnt);
+	tm->snd_complete_ts = PMIXP_COLL_GET_TS();
+#endif
 	coll_ctx->send_complete = true;
 	if (PMIXP_P2P_REGULAR == ctx) {
 		_progress_coll_bruck(coll_ctx);
@@ -320,6 +334,9 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	Buf buf = _get_fwd_buf(coll_ctx);
 	int rc = SLURM_SUCCESS;
 	uint32_t size = get_buf_offset(coll_ctx->bruck_buf);
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	hdr.nodeid = coll->my_peerid;
 	hdr.msgsize = size;
@@ -355,6 +372,11 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	cbdata->buf = buf;
 	cbdata->coll_ctx = coll_ctx;
 	cbdata->seq = coll->seq;
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   coll_ctx->step_cnt);
+	tm->snd_ts = PMIXP_COLL_GET_TS();
+#endif
 	rc = pmixp_server_send_nb(ep, PMIXP_MSG_BRUCK, coll->seq, buf,
 				  _bruck_sent_cb, cbdata);
 exit:
@@ -617,6 +639,7 @@ pmixp_coll_bruck_ctx_t *pmixp_coll_bruck_ctx_select(pmixp_coll_t *coll,
 		ret->in_use = true;
 		ret->seq = seq;
 		ret->bruck_buf = _get_contrib_buf(ret);
+		ret->ts = PMIXP_COLL_GET_TS();
 	}
 	return ret;
 }
@@ -626,6 +649,9 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 {
 	int ret = SLURM_SUCCESS;
 	pmixp_coll_bruck_ctx_t *coll_ctx = NULL;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -653,6 +679,11 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 	if (_bruck_buffer_grow(coll_ctx, data, size)) {
 		goto exit;
 	}
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, coll_ctx->seq,
+				   coll_ctx->step_cnt);
+	tm->rcv_ts = PMIXP_COLL_GET_TS();
+#endif
 
 	_progress_coll_bruck(coll_ctx);
 exit:
@@ -680,6 +711,9 @@ int pmixp_coll_bruck_remote(pmixp_coll_t *coll, pmixp_coll_bruck_msg_hdr_t *hdr,
 {
 	int ret = SLURM_SUCCESS;
 	pmixp_coll_bruck_ctx_t *coll_ctx = NULL;
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_t *tm = NULL;
+#endif
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -695,12 +729,15 @@ int pmixp_coll_bruck_remote(pmixp_coll_t *coll, pmixp_coll_bruck_msg_hdr_t *hdr,
 	PMIXP_DEBUG("%p: called", coll_ctx);
 #endif
 
+#ifdef PMIXP_COLL_TIMING
+	tm = pmixp_coll_timing_get(coll_ctx->coll, hdr->seq, hdr->step);
+	tm->rcv_ts = PMIXP_COLL_GET_TS();
+#endif
 	if (!coll_ctx->contrib_local || !_bruck_match_msg(coll_ctx, hdr)) {
 		_store_unexpected_contrib(coll, hdr, *buf);
 		*buf = NULL;
 		goto exit;
 	}
-
 	_remote_contrib(coll_ctx, PMIXP_P2P_REGULAR, hdr, *buf);
 exit:
 	/* unlock the structure */

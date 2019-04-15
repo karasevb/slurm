@@ -41,6 +41,66 @@
 #include "pmixp_client.h"
 #include "pmixp_server.h"
 
+#ifdef PMIXP_COLL_TIMING
+void pmixp_coll_free_timings(void *x)
+{
+	pmixp_coll_timing_t *tm = (pmixp_coll_timing_t*)x;
+	xfree(tm);
+}
+
+
+pmixp_coll_timing_t *pmixp_coll_timing_get(pmixp_coll_t *coll, uint32_t seq,
+					   int step)
+{
+	ListIterator itr = NULL;
+	pmixp_coll_timing_t *tm = NULL;
+	bool add_new_tm = true;
+
+	PMIXP_DEBUG("get for %d, %d", seq, step);
+
+	if (list_count(coll->timings) > 0) {
+		itr = list_iterator_create(coll->timings);
+		while ((tm = list_next(itr))) {
+			if ((tm->seq == seq) &&
+				(tm->step == step)) {
+				add_new_tm = false;
+				break;
+			}
+		}
+		list_iterator_destroy(itr);
+	}
+
+	if (add_new_tm) {
+		tm = xmalloc(sizeof(pmixp_coll_timing_t));
+		memset(tm, 0, sizeof(pmixp_coll_timing_t));
+		tm->seq = seq;
+		tm->step = step;
+		PMIXP_DEBUG("add new timestamp for %d, %d", seq, step);
+		list_append(coll->timings, tm);
+	}
+	return tm;
+}
+
+static void pmixp_coll_timing_print(pmixp_coll_t *coll)
+{
+	ListIterator itr = NULL;
+	pmixp_coll_timing_t *tm = NULL;
+
+	if (!list_count(coll->timings)) {
+		return;
+	}
+	itr = list_iterator_create(coll->timings);
+	PMIXP_ERROR("%s timings:", pmixp_coll_type2str(coll->type));
+	PMIXP_ERROR("seq# step# recv send snd_complete");
+	while ((tm = list_next(itr))) {
+		PMIXP_ERROR("%d %d %lf %lf %lf",
+			    tm->seq, tm->step, tm->rcv_ts, tm->snd_ts, tm->snd_complete_ts);
+	}
+	list_iterator_destroy(itr);
+}
+
+#endif
+
 /*
  * This is important routine that takes responsibility to decide
  * what messages may appear and what may not. In absence of errors
@@ -200,6 +260,9 @@ int pmixp_coll_init(pmixp_coll_t *coll, pmixp_coll_type_t type,
 	 * hostlist to resolve participant id to the hostname */
 	coll->peers_hl = hostlist_copy(hl);
 #endif
+#ifdef PMIXP_COLL_TIMING
+	coll->timings = list_create(pmixp_coll_free_timings);
+#endif
 
 	switch(type) {
 	case PMIXP_COLL_TYPE_FENCE_TREE:
@@ -232,8 +295,13 @@ void pmixp_coll_free(pmixp_coll_t *coll)
 	if (NULL != coll->pset.procs) {
 		xfree(coll->pset.procs);
 	}
+	PMIXP_DEBUG("called");
 #ifdef PMIXP_COLL_DEBUG
 	hostlist_destroy(coll->peers_hl);
+#endif
+#ifdef PMIXP_COLL_TIMING
+	pmixp_coll_timing_print(coll);
+	list_destroy(coll->timings);
 #endif
 	/* check for collective in a not-SYNC state - something went wrong */
 	switch(coll->type) {
