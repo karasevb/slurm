@@ -121,7 +121,7 @@ static int _pack_coll_bruck_info(pmixp_coll_bruck_ctx_t *coll_ctx,
 		pack32(procs->rank, buf);
 	}
 
-	/* 4. pack the ring header info */
+	/* 4. pack the bruck header info */
 	packmem((char*)bruck_hdr, sizeof(pmixp_coll_bruck_msg_hdr_t), buf);
 
 	return SLURM_SUCCESS;
@@ -334,9 +334,22 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	Buf buf = _get_fwd_buf(coll_ctx);
 	int rc = SLURM_SUCCESS;
 	uint32_t size = get_buf_offset(coll_ctx->bruck_buf);
+	uint32_t bruck_offset = 0;
 #ifdef PMIXP_COLL_TIMING
 	pmixp_coll_timing_t *tm = NULL;
 #endif
+
+	/* check for last step, overwrite size if offset expected */
+	if ((coll_ctx->step_cnt + 1) == coll_ctx->step_num) {
+	    if (coll_ctx->bruck_lsb) {
+		size -= coll_ctx->bruck_offset;
+		bruck_offset = coll_ctx->bruck_offset;
+#ifdef PMIXP_COLL_DEBUG
+	    PMIXP_DEBUG("%p: step %d, check offset %x", coll_ctx,
+			coll_ctx->step_num, coll_ctx->bruck_offset);
+#endif
+	    }
+	}
 
 	hdr.nodeid = coll->my_peerid;
 	hdr.msgsize = size;
@@ -361,11 +374,17 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	/* pack ring info */
 	_pack_coll_bruck_info(coll_ctx, &hdr, buf);
 
+	/* pack the Bruck auxiliary buffer offset */
+	xassert(coll_ctx->step_num > 0);
+	if (coll_ctx->bruck_remain & (1 << coll_ctx->step_cnt)) {
+	    pack32(coll_ctx->bruck_offset, buf);
+	}
+
 	/* insert payload to buf */
 	offset = get_buf_offset(buf);
 	pmixp_server_buf_reserve(buf, size);
-	memcpy(get_buf_data(buf) + offset, get_buf_data(coll_ctx->bruck_buf),
-	       size);
+	memcpy(get_buf_data(buf) + offset,
+	       get_buf_data(coll_ctx->bruck_buf) + bruck_offset, size);
 	set_buf_offset(buf, offset + size);
 
 	cbdata = xmalloc(sizeof(pmixp_coll_bruck_cbdata_t));
@@ -464,6 +483,22 @@ static int _remote_contrib(pmixp_coll_bruck_ctx_t *coll_ctx, pmixp_p2p_ctx_t ctx
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: called", coll_ctx);
 #endif
+	/* unpack the Bruck auxiliary buffer offset */
+	if( coll_ctx->bruck_lsb & (1 << coll_ctx->step_cnt)) {
+	    coll_ctx->bruck_offset = get_buf_offset(coll_ctx->bruck_buf);
+	}
+	if( coll_ctx->bruck_remain & (1 << coll_ctx->step_cnt) ){
+	    uint32_t offset;
+	    if (0 != unpack32(&offset, buf)) {
+		abort();
+	    }
+	    coll_ctx->bruck_offset =
+			    get_buf_offset(coll_ctx->bruck_buf) + offset;
+#ifdef PMIXP_COLL_DEBUG
+	    PMIXP_DEBUG("%p: step %d, unpack offset %u, new_offset %d", coll_ctx,
+			coll_ctx->step_cnt, offset, coll_ctx->bruck_offset );
+#endif
+	}
 
 	/* verify msg size */
 	if (hdr->msgsize != remaining_buf(buf)) {
@@ -603,22 +638,47 @@ int pmixp_coll_bruck_init(pmixp_coll_t *coll, hostlist_t *hl)
 	for (i = 0; i < PMIXP_COLL_BRUCK_CTX_NUM; i++) {
 		coll_ctx = &bruck->ctx_array[i];
 		coll_ctx->coll = coll;
+		coll_ctx->step_num = 0;
 		coll_ctx->in_use = false;
-		coll_ctx->seq = coll->seq;
-		coll_ctx->contrib_local = false;
-		coll_ctx->send_complete = false;
-		coll_ctx->recv_complete = false;
-		coll_ctx->state = PMIXP_COLL_BRUCK_SYNC;
-		coll_ctx->step_cnt = 0;
-		coll_ctx->step_num = pmixp_int_log2(coll->peers_cnt);
-		// TODO bit vector
 	}
 
 	return SLURM_SUCCESS;
 }
 
+static void pmixp_coll_bruck_ctx_init(pmixp_coll_bruck_ctx_t *coll_ctx,
+				      const int seq)
+{
+	pmixp_coll_t *coll = coll_ctx->coll;
+	uint32_t remain;
+
+	coll_ctx->in_use = true;
+	coll_ctx->seq = seq;
+	coll_ctx->step_cnt = -1;
+	coll_ctx->seq = seq;
+	coll_ctx->bruck_buf = _get_contrib_buf(coll_ctx);
+	coll_ctx->contrib_local = false;
+	coll_ctx->send_complete = false;
+	coll_ctx->recv_complete = false;
+	coll_ctx->state = PMIXP_COLL_BRUCK_SYNC;
+	coll_ctx->bruck_offset = 0;
+	coll_ctx->bruck_remain = coll->peers_cnt -
+			(1 << ((int)pmixp_int_log2(coll->peers_cnt)));
+	coll_ctx->step_num = (int)pmixp_int_log2(coll->peers_cnt) +
+			!!(coll_ctx->bruck_remain);
+	remain = coll_ctx->bruck_remain;
+	if (0 == remain) {
+		coll_ctx->bruck_lsb = 0;
+	} else {
+		coll_ctx->bruck_lsb = 1;
+		while (((remain & 1) == 0) && (remain != 0)) {
+		remain >>= 1;
+		coll_ctx->bruck_lsb <<= 1;
+		}
+	}
+}
+
 pmixp_coll_bruck_ctx_t *pmixp_coll_bruck_ctx_select(pmixp_coll_t *coll,
-						   const uint32_t seq)
+						   const int seq)
 {
 	int i;
 	pmixp_coll_bruck_ctx_t *coll_ctx = NULL, *ret = NULL;
@@ -636,11 +696,12 @@ pmixp_coll_bruck_ctx_t *pmixp_coll_bruck_ctx_select(pmixp_coll_t *coll,
 	}
 	/* add this context to use */
 	if (ret && !ret->in_use) {
-		ret->in_use = true;
-		ret->seq = seq;
-		ret->bruck_buf = _get_contrib_buf(ret);
+		pmixp_coll_bruck_ctx_init(ret, seq);
+#ifdef PMIXP_COLL_TIMING
 		ret->ts = PMIXP_COLL_GET_TS();
+#endif
 	}
+
 	return ret;
 }
 
@@ -652,6 +713,7 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 #ifdef PMIXP_COLL_TIMING
 	pmixp_coll_timing_t *tm = NULL;
 #endif
+	pmixp_debug_hang(0);
 
 	/* lock the structure */
 	slurm_mutex_lock(&coll->lock);
@@ -665,7 +727,7 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 
 	coll_ctx = pmixp_coll_bruck_ctx_select(coll, coll->seq);
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: called", coll_ctx);
+	PMIXP_DEBUG("%p: called offset %d", coll_ctx, coll_ctx->bruck_offset);
 #endif
 
 #ifdef PMIXP_COLL_DEBUG
@@ -675,7 +737,6 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 #endif
 	/* mark local contribution */
 	coll_ctx->contrib_local = true;
-	coll_ctx->step_cnt = -1;
 	if (_bruck_buffer_grow(coll_ctx, data, size)) {
 		goto exit;
 	}

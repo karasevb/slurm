@@ -44,7 +44,7 @@
 #define PMIXP_COLL_DEBUG 1
 #define PMIXP_COLL_RING_CTX_NUM 3
 #define PMIXP_COLL_BRUCK_CTX_NUM 3
-#define PMIXP_COLL_TIMING 1
+//#define PMIXP_COLL_TIMING 1
 
 #ifdef PMIXP_COLL_TIMING
 inline static double get_time_nsec()
@@ -293,6 +293,9 @@ typedef struct {
 	/* context data */
 	bool in_use;
 	uint32_t seq;
+	uint32_t bruck_remain;
+	uint32_t bruck_lsb;
+	uint32_t bruck_offset;
 	/* step number, max step is log2(nprocs) */
 	int step_cnt;
 	bool contrib_local;
@@ -414,8 +417,8 @@ int pmixp_coll_bruck_local(pmixp_coll_t *coll, char *data, size_t size,
 int pmixp_coll_bruck_remote(pmixp_coll_t *coll, pmixp_coll_bruck_msg_hdr_t *hdr,
 			    Buf *buf);
 int pmixp_coll_bruck_unpack(Buf buf, pmixp_coll_type_t *type,
-			   pmixp_coll_bruck_msg_hdr_t *bruck_hdr,
-			   pmixp_proc_t **r, size_t *nr);
+			    pmixp_coll_bruck_msg_hdr_t *bruck_hdr,
+			    pmixp_proc_t **r, size_t *nr);
 void pmixp_coll_bruck_free(pmixp_coll_bruck_t *bruck);
 pmixp_coll_t *pmixp_coll_bruck_from_cbdata(void *cbdata);
 
