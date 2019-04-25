@@ -334,16 +334,14 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	Buf buf = _get_fwd_buf(coll_ctx);
 	int rc = SLURM_SUCCESS;
 	uint32_t size = get_buf_offset(coll_ctx->bruck_buf);
-	uint32_t bruck_offset = 0;
 #ifdef PMIXP_COLL_TIMING
 	pmixp_coll_timing_t *tm = NULL;
 #endif
 
 	/* check for last step, overwrite size if offset expected */
 	if ((coll_ctx->step_cnt + 1) == coll_ctx->step_num) {
-	    if (coll_ctx->bruck_lsb) {
-		size -= coll_ctx->bruck_offset;
-		bruck_offset = coll_ctx->bruck_offset;
+	    if (coll_ctx->bruck_offset) {
+    		size = coll_ctx->bruck_offset;
 #ifdef PMIXP_COLL_DEBUG
 	    PMIXP_DEBUG("%p: step %d, check offset %x", coll_ctx,
 			coll_ctx->step_num, coll_ctx->bruck_offset);
@@ -384,7 +382,7 @@ static int _bruck_forward_data(pmixp_coll_bruck_ctx_t *coll_ctx)
 	offset = get_buf_offset(buf);
 	pmixp_server_buf_reserve(buf, size);
 	memcpy(get_buf_data(buf) + offset,
-	       get_buf_data(coll_ctx->bruck_buf) + bruck_offset, size);
+	       get_buf_data(coll_ctx->bruck_buf), size);
 	set_buf_offset(buf, offset + size);
 
 	cbdata = xmalloc(sizeof(pmixp_coll_bruck_cbdata_t));
