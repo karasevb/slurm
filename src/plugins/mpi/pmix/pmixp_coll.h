@@ -44,7 +44,7 @@
 #define PMIXP_COLL_DEBUG 1
 #define PMIXP_COLL_RING_CTX_NUM 3
 #define PMIXP_COLL_BRUCK_CTX_NUM 3
-//#define PMIXP_COLL_TIMING 1
+#define PMIXP_COLL_TIMING 1
 
 #ifdef PMIXP_COLL_TIMING
 inline static double get_time_nsec()

@@ -217,8 +217,10 @@ static void _libpmix_cb(void *_cbdata)
 	slurm_mutex_lock(&coll->lock);
 
 #ifdef PMIXP_COLL_TIMING
-	PMIXP_ERROR("coll seq %d size %d time %lf", cbdata->coll_ctx->seq,
-		    buf->processed, PMIXP_COLL_GET_TS() - cbdata->coll_ctx->ts);
+	double ts = PMIXP_COLL_GET_TS();
+	PMIXP_ERROR("called seq=%d size=%d coll_time=%lf timestamp=%lf",
+		    cbdata->coll_ctx->seq, buf->processed,
+		    ts - cbdata->coll_ctx->ts, ts);
 	cbdata->coll_ctx->ts = 0.0;
 #endif
 
@@ -250,6 +252,11 @@ static void _invoke_callback(pmixp_coll_bruck_ctx_t *coll_ctx)
 
 #ifdef PMIXP_COLL_DEBUG
 	PMIXP_DEBUG("%p: called, size %lu", coll_ctx, data_sz);
+#endif
+
+#ifdef PMIXP_COLL_TIMING
+	PMIXP_DEBUG("%p: called seq=%d timestamp=%lf",
+		    coll_ctx, coll_ctx->seq, PMIXP_COLL_GET_TS());
 #endif
 
 	cbdata->coll = coll;
