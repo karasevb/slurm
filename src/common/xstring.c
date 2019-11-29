@@ -299,17 +299,21 @@ int _xstrfmtcat(char **str, const char *fmt, ...)
 int _xstrfmtcatat(char **str, char **pos, const char *fmt, ...)
 {
 	size_t orig_len, append_len;
-	char *p = NULL;
+	static char p[128];
 	va_list ap;
 
+	//va_start(ap, fmt);
+	//p = _xstrdup_vprintf(fmt, ap);
+	//va_end(ap);
+
 	va_start(ap, fmt);
-	p = _xstrdup_vprintf(fmt, ap);
+	append_len = vsnprintf(p, 128, fmt, ap);
 	va_end(ap);
 
-	if (!p)
+	if (!append_len)
 		return 0;
 
-	append_len = strlen(p);
+	//append_len = strlen(p);
 
 	/* No string yet to append to, so just return p. */
 	if (!*str) {
@@ -329,7 +333,7 @@ int _xstrfmtcatat(char **str, char **pos, const char *fmt, ...)
 	_makespace(str, orig_len, append_len);
 
 	memcpy(*str + orig_len, p, append_len);
-	xfree(p);
+	//xfree(p);
 
 	/*
 	 * Update *pos. Cannot happen earlier as _makespace() may have
