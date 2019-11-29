@@ -306,9 +306,19 @@ int _xstrfmtcatat(char **str, char **pos, const char *fmt, ...)
 	//p = _xstrdup_vprintf(fmt, ap);
 	//va_end(ap);
 
+	//va_start(ap, fmt);
+	//append_len = vsnprintf(p, 128, fmt, ap);
+	//va_end(ap);
+
+	if (!*pos) {
+		*pos = *str;
+	}
 	va_start(ap, fmt);
-	append_len = vsnprintf(p, 128, fmt, ap);
+	append_len = vsprintf(*pos, fmt, ap);
 	va_end(ap);
+
+	*pos = *pos + append_len;
+	return append_len;
 
 	if (!append_len)
 		return 0;
