@@ -1288,6 +1288,8 @@ static void *_dconn_early_thread(void *args)
 	ep.ep.nodeid = *(int *)args;
 	xfree(args);
 
+	PMIXP_DEBUG("Start early dconn thread to %d", ep.ep.nodeid);
+
 	buf = pmixp_server_buf_new();
 	PMIXP_BASE_HDR_SETUP(bhdr, PMIXP_MSG_INIT_DIRECT, /* unused */ 0, buf);
 
@@ -1310,6 +1312,7 @@ int pmixp_server_direct_conn_early(void)
 	pmixp_proc_t proc;
 	pmixp_dconn_t *dconn = NULL;
 	int nodeid;
+	bitstr_t *node_bitmap = NULL;
 
 	PMIXP_DEBUG("called");
 	proc.rank = pmixp_lib_get_wildcard();
@@ -1325,6 +1328,10 @@ int pmixp_server_direct_conn_early(void)
 	if (!count) {
 		coll[count++] = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_TREE, &proc, 1);
 	}
+
+	volatile int delay = 0;
+	while (delay) sleep(1);
+
 	for (i = 0; i < count; i++) {
 		if (coll[i]) {
 			switch (coll[i]->type) {
@@ -1347,6 +1354,34 @@ int pmixp_server_direct_conn_early(void)
 			}
 			xassert(0 <= nodeid);
 
+			if (!node_bitmap) {
+				node_bitmap = bit_alloc(coll[i]->peers_cnt);
+			} else if (bit_size(node_bitmap) >
+				   coll[i]->peers_cnt) {
+				node_bitmap = bit_realloc(node_bitmap,
+							  coll[i]->peers_cnt);
+			}
+			bit_set(node_bitmap, nodeid);
+		}
+	}
+
+	if (node_bitmap) {
+		int32_t peers_cnt = bit_size(node_bitmap);
+		PMIXP_DEBUG("bit_size %d", peers_cnt);
+
+#ifndef NDEBUG
+		hostlist_t hl = bitmap2hostlist(node_bitmap);
+
+		char *dconn_nodes = slurm_hostlist_ranged_string_xmalloc(hl);
+		PMIXP_DEBUG("early direct connet to nodes: %s", dconn_nodes);
+		xfree(dconn_nodes);
+#endif
+
+		for (nodeid = 0; nodeid < peers_cnt; nodeid++) {
+			if (!bit_get_pos_num(node_bitmap, nodeid)) {
+				continue;
+			}
+			PMIXP_DEBUG("Create early dconn thread to %d", nodeid);
 			dconn = pmixp_dconn_lock(nodeid);
 			pmixp_dconn_req_sent(dconn);
 			pmixp_dconn_unlock(dconn);
@@ -1355,15 +1390,17 @@ int pmixp_server_direct_conn_early(void)
 			*nodeid_arg = nodeid;
 			slurm_thread_create(&dconn->tid, _dconn_early_thread,
 					    nodeid_arg);
-
-			/*
-			if (SLURM_SUCCESS != rc) {
-				PMIXP_ERROR_STD("send init msg error");
-				return SLURM_ERROR;
-			}
-			*/
 		}
+
+		/*
+		if (SLURM_SUCCESS != rc) {
+			PMIXP_ERROR_STD("send init msg error");
+			return SLURM_ERROR;
+		}
+		*/
 	}
+	FREE_NULL_BITMAP(node_bitmap);
+
 	return SLURM_SUCCESS;
 }
 
