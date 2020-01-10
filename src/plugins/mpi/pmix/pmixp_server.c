@@ -1277,13 +1277,39 @@ _direct_send(pmixp_dconn_t *dconn, pmixp_ep_t *ep,
 	}
 }
 
+static void *_dconn_early_thread(void *args)
+{
+	pmixp_base_hdr_t bhdr;
+	Buf buf;
+	pmixp_ep_t ep = {0};
+	int rc;
+
+	ep.type = PMIXP_EP_NOIDEID;
+	ep.ep.nodeid = *(int *)args;
+	xfree(args);
+
+	buf = pmixp_server_buf_new();
+	PMIXP_BASE_HDR_SETUP(bhdr, PMIXP_MSG_INIT_DIRECT, /* unused */ 0, buf);
+
+	rc = _slurm_send(&ep, bhdr, buf);
+	FREE_NULL_BUFFER(buf);
+
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR_STD("send init msg error");
+	}
+
+	return NULL;
+}
+
 int pmixp_server_direct_conn_early(void)
 {
 	pmixp_coll_type_t types[] = { PMIXP_COLL_TYPE_FENCE_TREE, PMIXP_COLL_TYPE_FENCE_RING };
 	pmixp_coll_type_t type = pmixp_info_srv_fence_coll_type();
 	pmixp_coll_t *coll[PMIXP_COLL_TYPE_FENCE_MAX] = { NULL };
-	int i, rc, count = 0;
+	int i, count = 0;
 	pmixp_proc_t proc;
+	pmixp_dconn_t *dconn = NULL;
+	int nodeid;
 
 	PMIXP_DEBUG("called");
 	proc.rank = pmixp_lib_get_wildcard();
@@ -1301,15 +1327,10 @@ int pmixp_server_direct_conn_early(void)
 	}
 	for (i = 0; i < count; i++) {
 		if (coll[i]) {
-			pmixp_ep_t ep = {0};
-			Buf buf;
-
-			ep.type = PMIXP_EP_NOIDEID;
-
 			switch (coll[i]->type) {
 			case PMIXP_COLL_TYPE_FENCE_TREE:
-				ep.ep.nodeid = coll[i]->state.tree.prnt_peerid;
-				if (ep.ep.nodeid < 0) {
+				nodeid = coll[i]->state.tree.prnt_peerid;
+				if (nodeid < 0) {
 					/* this is the root node, it has no
 					 * the parent node to early connect */
 					continue;
@@ -1317,23 +1338,30 @@ int pmixp_server_direct_conn_early(void)
 				break;
 			case PMIXP_COLL_TYPE_FENCE_RING:
 				/* calculate the id of the next ring neighbor */
-				ep.ep.nodeid = (coll[i]->my_peerid + 1) %
-						coll[i]->peers_cnt;
+				nodeid = (coll[i]->my_peerid + 1) %
+					 coll[i]->peers_cnt;
 				break;
 			default:
 				PMIXP_ERROR("Unknown coll type");
 				return SLURM_ERROR;
 			}
+			xassert(0 <= nodeid);
 
-			buf = pmixp_server_buf_new();
-			rc = pmixp_server_send_nb(
-				&ep, PMIXP_MSG_INIT_DIRECT, coll[i]->seq,
-				buf, pmixp_server_sent_buf_cb, buf);
+			dconn = pmixp_dconn_lock(nodeid);
+			pmixp_dconn_req_sent(dconn);
+			pmixp_dconn_unlock(dconn);
 
+			int *nodeid_arg = xmalloc(sizeof(int));
+			*nodeid_arg = nodeid;
+			slurm_thread_create(&dconn->tid, _dconn_early_thread,
+					    nodeid_arg);
+
+			/*
 			if (SLURM_SUCCESS != rc) {
 				PMIXP_ERROR_STD("send init msg error");
 				return SLURM_ERROR;
 			}
+			*/
 		}
 	}
 	return SLURM_SUCCESS;
