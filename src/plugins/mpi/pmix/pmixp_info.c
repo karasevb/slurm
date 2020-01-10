@@ -49,13 +49,15 @@
 /* Server communication */
 static char *_srv_usock_path = NULL;
 static int _srv_usock_fd = -1;
-static bool _srv_use_direct_conn = true;
-static bool _srv_use_direct_conn_early = false;
+static bool _direct_conn = true;
+static bool _wireup_early = true;
+static bool _threaded_wireup = true;
+
 static bool _srv_same_arch = true;
 #ifdef HAVE_UCX
-static bool _srv_use_direct_conn_ucx = true;
+static bool _direct_conn_ucx = true;
 #else
-static bool _srv_use_direct_conn_ucx = false;
+static bool _direct_conn_ucx = false;
 #endif
 static int _srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 static bool _srv_fence_coll_barrier = false;
@@ -92,20 +94,25 @@ bool pmixp_info_same_arch(void){
 
 
 bool pmixp_info_srv_direct_conn(void){
-	return _srv_use_direct_conn;
+	return _direct_conn;
 }
 
-bool pmixp_info_srv_direct_conn_early(void){
-	return _srv_use_direct_conn_early && _srv_use_direct_conn;
+bool pmixp_info_srv_wireup_early(void){
+	return _wireup_early && _direct_conn;
 }
+
+bool pmixp_info_srv_wireup_threaded(void){
+	return _threaded_wireup && _direct_conn;
+}
+
 
 bool pmixp_info_srv_direct_conn_ucx(void){
-	return _srv_use_direct_conn_ucx && _srv_use_direct_conn;
+	return _direct_conn_ucx && _direct_conn;
 }
 
 int pmixp_info_srv_fence_coll_type(void)
 {
-	if (!_srv_use_direct_conn) {
+	if (!_direct_conn) {
 		static bool printed = false;
 		if (!printed && PMIXP_COLL_TYPE_FENCE_RING == _srv_fence_coll_type) {
 			PMIXP_ERROR("Ring collective algorithm cannot be used "
@@ -475,20 +482,33 @@ static int _env_set(char ***env)
 	if (p) {
 		if (!xstrcmp("1",p) || !xstrcasecmp("true", p) ||
 		    !xstrcasecmp("yes", p)) {
-			_srv_use_direct_conn = true;
+			_direct_conn = true;
 		} else if (!xstrcmp("0",p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
-			_srv_use_direct_conn = false;
+			_direct_conn = false;
 		}
 	}
 	p = getenvp(*env, PMIXP_DIRECT_CONN_EARLY);
 	if (p) {
 		if (!xstrcmp("1", p) || !xstrcasecmp("true", p) ||
 		    !xstrcasecmp("yes", p)) {
-			_srv_use_direct_conn_early = true;
+			_wireup_early = true;
 		} else if (!xstrcmp("0", p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
-			_srv_use_direct_conn_early = false;
+			_wireup_early = false;
+		}
+	}
+
+
+
+	p = getenvp(*env, PMIXP_DIRECT_CONN_EARLY_THREAD);
+	if (p) {
+		if (!xstrcmp("1", p) || !xstrcasecmp("true", p) ||
+				!xstrcasecmp("yes", p)) {
+			_threaded_wireup = true;
+		} else if (!xstrcmp("0", p) || !xstrcasecmp("false", p) ||
+			   !xstrcasecmp("no", p)) {
+			_threaded_wireup = false;
 		}
 	}
 
@@ -519,10 +539,10 @@ static int _env_set(char ***env)
 	if (p) {
 		if (!xstrcmp("1",p) || !xstrcasecmp("true", p) ||
 		    !xstrcasecmp("yes", p)) {
-			_srv_use_direct_conn_ucx = true;
+			_direct_conn_ucx = true;
 		} else if (!xstrcmp("0",p) || !xstrcasecmp("false", p) ||
 			   !xstrcasecmp("no", p)) {
-			_srv_use_direct_conn_ucx = false;
+			_direct_conn_ucx = false;
 		}
 	}
 

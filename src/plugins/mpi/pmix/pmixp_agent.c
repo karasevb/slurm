@@ -400,8 +400,8 @@ int pmixp_agent_start(void)
 	slurm_cond_wait(&agent_running_cond, &agent_mutex);
 
 	/* Establish the early direct connection */
-	if (pmixp_info_srv_direct_conn_early()) {
-		if (pmixp_server_direct_conn_early()) {
+	if (pmixp_info_srv_wireup_early()) {
+		if (pmixp_server_wireup_early()) {
 			slurm_mutex_unlock(&agent_mutex);
 			return SLURM_ERROR;
 		}
@@ -440,6 +440,9 @@ int pmixp_agent_stop(void)
 	char c = 1;
 
 	slurm_mutex_lock(&agent_mutex);
+
+	/* Finalize early wireup */
+	pmixp_server_wireup_early_fini();
 
 	if (_agent_tid) {
 		eio_signal_shutdown(_io_handle);

@@ -71,6 +71,7 @@ typedef struct {
 	void *buffer;
 	size_t len;
 	void *msg;
+	int nodeid;
 } pmixp_ucx_req_t;
 
 typedef struct {
@@ -104,6 +105,8 @@ static void send_handle(void *request, ucs_status_t status)
 	pmixp_ucx_req_t *req = (pmixp_ucx_req_t *) request;
 	if (UCS_OK == status){
 		req->status = PMIXP_UCX_COMPLETE;
+		PMIXP_DEBUG("UCX: send [complete] to nodeid=%d, size=%zu",
+			    req->nodeid, req->len);
 	} else {
 		PMIXP_ERROR("UCX send request failed: %s",
 			    ucs_status_string(status));
@@ -721,15 +724,17 @@ static int _ucx_send(void *_priv, void *msg)
 	pmixp_dconn_ucx_t *priv = (pmixp_dconn_ucx_t *)_priv;
 	int rc = SLURM_SUCCESS;
 	bool release = false;
+	size_t msize = _direct_hdr.buf_size(msg);
 
 	slurm_mutex_lock(&_ucx_worker_lock);
 	if (!priv->connected) {
+		PMIXP_DEBUG("UCX: send [pending] to nodeid=%d, size=%zu",
+			    priv->nodeid, msize);
 		pmixp_rlist_enq(&priv->pending, msg);
 	} else {
 		pmixp_ucx_req_t *req = NULL;
 		xassert(_direct_hdr_set);
 		char *mptr = _direct_hdr.buf_ptr(msg);
-		size_t msize = _direct_hdr.buf_size(msg);
 		req = (pmixp_ucx_req_t*)
 			ucp_tag_send_nb(priv->server_ep,
 					(void*)mptr, msize,
@@ -741,14 +746,18 @@ static int _ucx_send(void *_priv, void *msg)
 			goto exit;
 		} else if (UCS_OK == UCS_PTR_STATUS(req)) {
 			/* defer release until we unlock ucp worker */
+			PMIXP_DEBUG("UCX: send [inline] to nodeid=%d, size=%zu",
+				    priv->nodeid, msize);
 			release = true;
 		} else {
+			PMIXP_DEBUG("UCX: send [regular] to nodeid=%d, size=%zu",
+				    priv->nodeid, msize);
+			req->nodeid = priv->nodeid;
 			req->msg = msg;
 			req->buffer = mptr;
 			req->len = msize;
 			pmixp_rlist_enq(&_snd_pending, (void*)req);
 			_activate_progress();
-
 		}
 	}
 exit:
