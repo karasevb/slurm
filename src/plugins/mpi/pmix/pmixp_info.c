@@ -107,13 +107,13 @@ int pmixp_info_srv_fence_coll_type(void)
 {
 	if (!_srv_use_direct_conn) {
 		static bool printed = false;
-		if (!printed && PMIXP_COLL_CPERF_RING == _srv_fence_coll_type) {
+		if (!printed && PMIXP_COLL_TYPE_FENCE_RING == _srv_fence_coll_type) {
 			PMIXP_ERROR("Ring collective algorithm cannot be used "
 				    "with Slurm RPC's communication subsystem. "
 				    "Tree-based collective will be used instead.");
 			printed = true;
 		}
-		return PMIXP_COLL_CPERF_TREE;
+		return PMIXP_COLL_TYPE_FENCE_TREE;
 	}
 	return _srv_fence_coll_type;
 }
@@ -496,11 +496,11 @@ static int _env_set(char ***env)
 	p = getenvp(*env, PMIXP_COLL_FENCE);
 	if (p) {
 		if (!xstrcmp("mixed", p)) {
-			_srv_fence_coll_type = PMIXP_COLL_CPERF_MIXED;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 		} else if (!xstrcmp("tree", p)) {
-			_srv_fence_coll_type = PMIXP_COLL_CPERF_TREE;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_TREE;
 		} else if (!xstrcmp("ring", p)) {
-			_srv_fence_coll_type = PMIXP_COLL_CPERF_RING;
+			_srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_RING;
 		}
 	}
 	p = getenvp(*env, SLURM_PMIXP_FENCE_BARRIER);
