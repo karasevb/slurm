@@ -82,7 +82,6 @@ typedef struct {
 	/* remote node info */
 	int nodeid;
 	void *priv;
-	pthread_t tid;
 } pmixp_dconn_t;
 
 typedef void *(*pmixp_dconn_p2p_init_t)(int nodeid,
