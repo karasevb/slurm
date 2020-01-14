@@ -864,7 +864,7 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		break;
 	}
 	case PMIXP_MSG_INIT_DIRECT:
-		PMIXP_DEBUG("Direct connection init from %d", hdr->nodeid);
+		PMIXP_DEBUG("WIREUP: connection init from %d", hdr->nodeid);
 		break;
 #ifndef NDEBUG
 	case PMIXP_MSG_PINGPONG: {
@@ -1317,12 +1317,14 @@ static void *_wireup_thread(void *args)
 	buf = pmixp_server_buf_new();
 	PMIXP_BASE_HDR_SETUP(bhdr, PMIXP_MSG_INIT_DIRECT, /* unused */ 0, buf);
 
+	PMIXP_DEBUG("WIREUP/early: sending initiation message");
 	rc = _slurm_send(&ep, bhdr, buf);
 	FREE_NULL_BUFFER(buf);
 
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR_STD("send init msg error");
 	}
+	PMIXP_DEBUG("WIREUP/early: complete");
 	return NULL;
 }
 
@@ -1338,7 +1340,7 @@ int pmixp_server_wireup_early(void)
 	int *wireup_nids = xcalloc(1, sizeof(*wireup_nids));
 	int wireup_ncnt = 0;
 
-	PMIXP_DEBUG("called");
+	PMIXP_DEBUG("WIREUP/early: start");
 	proc.rank = pmixp_lib_get_wildcard();
 	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
 
