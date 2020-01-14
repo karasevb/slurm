@@ -1529,7 +1529,7 @@ static int _slurm_send(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr, Buf buf)
 	addr = pmixp_info_srv_usock_path();
 
 	bhdr.ext_flag = 0;
-	if (pmixp_info_srv_direct_conn() && PMIXP_EP_NOIDEID == ep->type) {
+	if (pmixp_info_srv_direct_conn()) {
 		bhdr.ext_flag = 1;
 	}
 
