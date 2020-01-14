@@ -82,7 +82,6 @@ typedef struct {
 	/* remote node info */
 	int nodeid;
 	void *priv;
-	pthread_t tid;
 } pmixp_dconn_t;
 
 typedef void *(*pmixp_dconn_p2p_init_t)(int nodeid,
@@ -225,6 +224,8 @@ static inline int pmixp_dconn_connect(
 {
 	int rc;
 	/* establish the connection */
+
+	PMIXP_DEBUG("WIREUP: Connect to %d", dconn->nodeid);
 	rc = pmixp_dconn_connect_do(dconn, ep_data, ep_len, init_msg);
 	if (SLURM_SUCCESS == rc){
 		dconn->state = PMIXP_DIRECT_CONNECTED;

@@ -864,7 +864,7 @@ static void _process_server_request(pmixp_base_hdr_t *hdr, Buf buf)
 		break;
 	}
 	case PMIXP_MSG_INIT_DIRECT:
-		PMIXP_DEBUG("Direct connection init from %d", hdr->nodeid);
+		PMIXP_DEBUG("WIREUP: connection init from %d", hdr->nodeid);
 		break;
 #ifndef NDEBUG
 	case PMIXP_MSG_PINGPONG: {
@@ -1277,131 +1277,139 @@ _direct_send(pmixp_dconn_t *dconn, pmixp_ep_t *ep,
 	}
 }
 
-static void *_dconn_early_thread(void *args)
+/*
+ * --------------------------- Early wireup -----------------------
+ */
+
+/* Early wireup */
+static pthread_t _wireup_tid;
+static int _wireup_join = 0;
+typedef struct {
+	int *wireup_nids;
+	int node_count;
+} pmixp_wireup_descr_t;
+
+static void *_wireup_thread(void *args)
 {
+	pmixp_wireup_descr_t *obj = (pmixp_wireup_descr_t *)args;
 	pmixp_base_hdr_t bhdr;
 	Buf buf;
 	pmixp_ep_t ep = {0};
-	int rc;
+	int rc, i;
+	hostlist_t hl = slurm_hostlist_create(NULL);
 
-	ep.type = PMIXP_EP_NOIDEID;
-	ep.ep.nodeid = *(int *)args;
-	xfree(args);
+	/* Setup addressing information in the broadcast message */
+	for(i = 0; i < obj->node_count; i++) {
+		int nodeid = obj->wireup_nids[i];
+		pmixp_dconn_t *dconn = pmixp_dconn_lock(nodeid);
+		if (PMIXP_DIRECT_INIT == dconn->state) {
+			char *host = pmixp_info_job_host(nodeid);
+			pmixp_dconn_req_sent(dconn);
+			slurm_hostlist_push_host(hl, host);
+		}
+		pmixp_dconn_unlock(dconn);
+	}
+	ep.type = PMIXP_EP_HLIST;
+	ep.ep.hostlist = slurm_hostlist_ranged_string_xmalloc(hl);
+	slurm_hostlist_destroy(hl);
 
-	PMIXP_DEBUG("Start early dconn thread to %d", ep.ep.nodeid);
-
+	/* Prepare message content */
 	buf = pmixp_server_buf_new();
 	PMIXP_BASE_HDR_SETUP(bhdr, PMIXP_MSG_INIT_DIRECT, /* unused */ 0, buf);
 
+	PMIXP_DEBUG("WIREUP/early: sending initiation message");
 	rc = _slurm_send(&ep, bhdr, buf);
 	FREE_NULL_BUFFER(buf);
 
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR_STD("send init msg error");
 	}
-
+	PMIXP_DEBUG("WIREUP/early: complete");
 	return NULL;
 }
 
-int pmixp_server_direct_conn_early(void)
+int pmixp_server_wireup_early(void)
 {
 	pmixp_coll_type_t types[] = { PMIXP_COLL_TYPE_FENCE_TREE, PMIXP_COLL_TYPE_FENCE_RING };
 	pmixp_coll_type_t type = pmixp_info_srv_fence_coll_type();
-	pmixp_coll_t *coll[PMIXP_COLL_TYPE_FENCE_MAX] = { NULL };
+	pmixp_coll_t *colls[PMIXP_COLL_TYPE_FENCE_MAX] = { NULL };
+	pmixp_coll_t *coll = NULL;
 	int i, count = 0;
 	pmixp_proc_t proc;
-	pmixp_dconn_t *dconn = NULL;
 	int nodeid;
-	bitstr_t *node_bitmap = NULL;
+	int *wireup_nids = xcalloc(1, sizeof(*wireup_nids));
+	int wireup_ncnt = 0;
 
-	PMIXP_DEBUG("called");
+	PMIXP_DEBUG("WIREUP/early: start");
 	proc.rank = pmixp_lib_get_wildcard();
 	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
 
-	for (i=0; i < sizeof(types)/sizeof(types[0]); i++){
-		if (type != PMIXP_COLL_TYPE_FENCE_MAX && type != types[i]) {
-			continue;
+	if(type != PMIXP_COLL_TYPE_FENCE_MAX) {
+		coll = pmixp_state_coll_get(type, &proc, 1);
+		if (coll) {
+			colls[count++] = coll;
 		}
-		coll[count++] = pmixp_state_coll_get(types[i], &proc, 1);
+	} else {
+		for (i=0; i < sizeof(types)/sizeof(types[0]); i++){
+			coll = pmixp_state_coll_get(types[i], &proc, 1);
+			if (coll) {
+				colls[count++] = coll;
+			}
+		}
 	}
-	/* use Tree algo by defaut */
-	if (!count) {
-		coll[count++] = pmixp_state_coll_get(PMIXP_COLL_TYPE_FENCE_TREE, &proc, 1);
-	}
-
-	volatile int delay = 0;
-	while (delay) sleep(1);
 
 	for (i = 0; i < count; i++) {
-		if (coll[i]) {
-			switch (coll[i]->type) {
-			case PMIXP_COLL_TYPE_FENCE_TREE:
-				nodeid = coll[i]->state.tree.prnt_peerid;
-				if (nodeid < 0) {
-					/* this is the root node, it has no
+		switch (colls[i]->type) {
+		case PMIXP_COLL_TYPE_FENCE_TREE:
+			nodeid = colls[i]->state.tree.prnt_peerid;
+			if (nodeid < 0) {
+				/* this is the root node, it has no
 					 * the parent node to early connect */
-					continue;
-				}
-				break;
-			case PMIXP_COLL_TYPE_FENCE_RING:
-				/* calculate the id of the next ring neighbor */
-				nodeid = (coll[i]->my_peerid + 1) %
-					 coll[i]->peers_cnt;
-				break;
-			default:
-				PMIXP_ERROR("Unknown coll type");
-				return SLURM_ERROR;
-			}
-			xassert(0 <= nodeid);
-
-			if (!node_bitmap) {
-				node_bitmap = bit_alloc(coll[i]->peers_cnt);
-			} else if (bit_size(node_bitmap) >
-				   coll[i]->peers_cnt) {
-				node_bitmap = bit_realloc(node_bitmap,
-							  coll[i]->peers_cnt);
-			}
-			bit_set(node_bitmap, nodeid);
-		}
-	}
-
-	if (node_bitmap) {
-		int32_t peers_cnt = bit_size(node_bitmap);
-		PMIXP_DEBUG("bit_size %d", peers_cnt);
-
-#ifndef NDEBUG
-		hostlist_t hl = bitmap2hostlist(node_bitmap);
-
-		char *dconn_nodes = slurm_hostlist_ranged_string_xmalloc(hl);
-		PMIXP_DEBUG("early direct connet to nodes: %s", dconn_nodes);
-		xfree(dconn_nodes);
-#endif
-
-		for (nodeid = 0; nodeid < peers_cnt; nodeid++) {
-			if (!bit_get_pos_num(node_bitmap, nodeid)) {
 				continue;
 			}
-			PMIXP_DEBUG("Create early dconn thread to %d", nodeid);
-			dconn = pmixp_dconn_lock(nodeid);
-			pmixp_dconn_req_sent(dconn);
-			pmixp_dconn_unlock(dconn);
-
-			int *nodeid_arg = xmalloc(sizeof(int));
-			*nodeid_arg = nodeid;
-			slurm_thread_create(&dconn->tid, _dconn_early_thread,
-					    nodeid_arg);
-		}
-
-		/*
-		if (SLURM_SUCCESS != rc) {
-			PMIXP_ERROR_STD("send init msg error");
+			break;
+		case PMIXP_COLL_TYPE_FENCE_RING:
+			/* calculate the id of the next ring neighbor */
+			nodeid = colls[i]->state.ring.next_peerid;
+			break;
+		default:
+			PMIXP_ERROR("Unknown coll type");
 			return SLURM_ERROR;
 		}
-		*/
+		xassert(0 <= nodeid);
+
+		if (xsize(wireup_nids) <= (wireup_ncnt + 1)) {
+			size_t new_size = xsize(wireup_nids) * 2;
+			wireup_nids = xrealloc(wireup_nids, new_size);
+		}
+		wireup_nids[wireup_ncnt++] = nodeid;
 	}
-	FREE_NULL_BITMAP(node_bitmap);
+
+	if (wireup_ncnt) {
+		pmixp_wireup_descr_t *obj = xmalloc(sizeof(*obj));
+		obj->node_count = wireup_ncnt;
+		obj->wireup_nids = wireup_nids;
+
+		if( pmixp_info_srv_wireup_threaded() ) {
+			_wireup_join = 1;
+			slurm_thread_create(&_wireup_tid, _wireup_thread, obj);
+		} else {
+			/* Call the wireup function in a blocking fashion */
+			_wireup_thread((void*)obj);
+			xfree(wireup_nids);
+		}
+	} else {
+		xfree(wireup_nids);
+	}
 
 	return SLURM_SUCCESS;
+}
+
+void pmixp_server_wireup_early_fini(void)
+{
+	if( _wireup_join ) {
+		pthread_join(_wireup_tid, NULL);
+	}
 }
 
 /*
