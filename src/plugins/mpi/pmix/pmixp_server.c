@@ -1403,6 +1403,13 @@ int pmixp_server_wireup_early(void)
 	return SLURM_SUCCESS;
 }
 
+void pmixp_server_wireup_early_fini(void)
+{
+	if( _wireup_join ) {
+		pthread_join(_wireup_tid, NULL);
+	}
+}
+
 /*
  * ------------------- Slurm communication protocol -----------------------
  */

@@ -81,6 +81,7 @@ int pmix_srun_init(const mpi_plugin_client_info_t *job, char ***env);
 void pmixp_server_slurm_conn(int fd);
 void pmixp_server_direct_conn(int fd);
 int pmixp_server_wireup_early(void);
+void pmixp_server_wireup_early_fini(void);
 int pmixp_server_send_nb(pmixp_ep_t *ep, pmixp_srv_cmd_t type,
 			 uint32_t seq, Buf buf,
 			 pmixp_server_sent_cb_t complete_cb,

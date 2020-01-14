@@ -343,6 +343,9 @@ int pmixp_agent_stop(void)
 
 	slurm_mutex_lock(&agent_mutex);
 
+	/* Finalize early wireup */
+	pmixp_server_wireup_early_fini();
+
 	if (_agent_tid) {
 		eio_signal_shutdown(_io_handle);
 		/* wait for the agent thread to stop */
