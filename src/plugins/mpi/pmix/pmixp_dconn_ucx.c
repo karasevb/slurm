@@ -52,13 +52,21 @@ static pmixp_p2p_data_t _direct_hdr;
 static void *_host_hdr = NULL;
 pthread_mutex_t _ucx_worker_lock;
 
-
-
 /* UCX objects */
 ucp_context_h ucp_context;
 ucp_worker_h ucp_worker;
 static ucp_address_t *_ucx_addr;
 static size_t _ucx_alen;
+
+/* UCX debug variables */
+static uint64_t _send_msg_id = 0, _recv_msg_id = 0;
+
+#define PMIXP_UCX_DEBUG(direction, state, req)                       \
+	PMIXP_DEBUG("UCX: %s [%s] nodeid=%d, mid=%lu, size=%zu",  \
+	    direction, state, req->nodeid, req->msgid, req->len);
+
+#define PMIXP_UCX_DEBUG_SND(state, req) PMIXP_UCX_DEBUG("send", state, req)
+#define PMIXP_UCX_DEBUG_RCV(state, req) PMIXP_UCX_DEBUG("recv", state, req)
 
 typedef enum {
 	PMIXP_UCX_ACTIVE = 0,
@@ -72,6 +80,7 @@ typedef struct {
 	size_t len;
 	void *msg;
 	int nodeid;
+	uint64_t msgid;
 } pmixp_ucx_req_t;
 
 typedef struct {
@@ -105,8 +114,7 @@ static void send_handle(void *request, ucs_status_t status)
 	pmixp_ucx_req_t *req = (pmixp_ucx_req_t *) request;
 	if (UCS_OK == status){
 		req->status = PMIXP_UCX_COMPLETE;
-		PMIXP_DEBUG("UCX: send [complete] to nodeid=%d, size=%zu",
-			    req->nodeid, req->len);
+		PMIXP_UCX_DEBUG_SND("completed", req);
 	} else {
 		PMIXP_ERROR("UCX send request failed: %s",
 			    ucs_status_string(status));
@@ -305,7 +313,7 @@ err_worker:
 
 }
 
-static void _release_send_requests(pmixp_rlist_t *l)
+static void _release_send_requests(pmixp_rlist_t *l, char *type)
 {
 	size_t count = pmixp_rlist_count(l);
 	size_t i;
@@ -313,7 +321,8 @@ static void _release_send_requests(pmixp_rlist_t *l)
 		pmixp_ucx_req_t *req;
 		req = (pmixp_ucx_req_t*)pmixp_rlist_deq(l);
 		xassert(req);
-
+		PMIXP_ERROR("WARNING: %s: canceling send request: %p, status=%d",
+		       type, req, req->status);
 		ucp_request_cancel(ucp_worker, req);
 		if (req->buffer) {
 			/* NOTE: since we are finalizing, we don't really care
@@ -325,7 +334,7 @@ static void _release_send_requests(pmixp_rlist_t *l)
 	}
 }
 
-static void _release_recv_requests(pmixp_rlist_t *l)
+static void _release_recv_requests(pmixp_rlist_t *l, char *type)
 {
 	size_t count = pmixp_rlist_count(l);
 	size_t i;
@@ -334,6 +343,8 @@ static void _release_recv_requests(pmixp_rlist_t *l)
 		pmixp_ucx_req_t *req;
 		req = (pmixp_ucx_req_t*)pmixp_rlist_deq(l);
 		xassert(req);
+		PMIXP_ERROR("WARNING: %s: canceling recv request: %p, status=%d",
+		       type, req, req->status);
 		ucp_request_cancel(ucp_worker, req);
 		_recv_req_release(req);
 	}
@@ -342,11 +353,11 @@ static void _release_recv_requests(pmixp_rlist_t *l)
 void pmixp_dconn_ucx_stop()
 {
 	slurm_mutex_lock(&_ucx_worker_lock);
-	_release_send_requests(&_snd_pending);
-	_release_send_requests(&_snd_complete);
+	_release_send_requests(&_snd_pending, "_snd_pending");
+	_release_send_requests(&_snd_complete, "_snd_complete");
 
-	_release_recv_requests(&_rcv_pending);
-	_release_recv_requests(&_rcv_complete);
+	_release_recv_requests(&_rcv_pending, "_rcv_pending");
+	_release_recv_requests(&_rcv_complete, "_rcv_complete");
 	slurm_mutex_unlock(&_ucx_worker_lock);
 }
 
@@ -439,8 +450,11 @@ static bool _ucx_progress()
 			continue;
 		}
 		new_msg = true;
+		req->nodeid = (int)info_tag.sender_tag;
 		req->buffer = msg;
 		req->len = info_tag.length;
+		req->msgid = _recv_msg_id++;
+		PMIXP_UCX_DEBUG_RCV("enqueued", req);
 		if (PMIXP_UCX_ACTIVE == req->status) {
 			/* this message is long enough, so it makes
 			 * sense to do the progres one more timer */
@@ -492,6 +506,7 @@ static bool _ucx_progress()
 		/* Skip failed receives
 		 * TODO: what more can we do? */
 		if (PMIXP_UCX_FAILED != req->status){
+			PMIXP_UCX_DEBUG_RCV("completed", req);
 			_ucx_process_msg(req->buffer, req->len);
 		}
 		elem = pmixp_rlist_next(&_rcv_complete, elem);
@@ -725,11 +740,16 @@ static int _ucx_send(void *_priv, void *msg)
 	int rc = SLURM_SUCCESS;
 	bool release = false;
 	size_t msize = _direct_hdr.buf_size(msg);
+	pmixp_ucx_req_t req_init = {
+		.nodeid = priv->nodeid,
+		.msg = msg,
+		.msgid = _send_msg_id++,
+		.len = msize
+	};
 
 	slurm_mutex_lock(&_ucx_worker_lock);
 	if (!priv->connected) {
-		PMIXP_DEBUG("UCX: send [pending] to nodeid=%d, size=%zu",
-			    priv->nodeid, msize);
+		PMIXP_UCX_DEBUG_SND("pending", (&req_init));
 		pmixp_rlist_enq(&priv->pending, msg);
 	} else {
 		pmixp_ucx_req_t *req = NULL;
@@ -746,16 +766,11 @@ static int _ucx_send(void *_priv, void *msg)
 			goto exit;
 		} else if (UCS_OK == UCS_PTR_STATUS(req)) {
 			/* defer release until we unlock ucp worker */
-			PMIXP_DEBUG("UCX: send [inline] to nodeid=%d, size=%zu",
-				    priv->nodeid, msize);
+			PMIXP_UCX_DEBUG_SND("completed", (&req_init));
 			release = true;
 		} else {
-			PMIXP_DEBUG("UCX: send [regular] to nodeid=%d, size=%zu",
-				    priv->nodeid, msize);
-			req->nodeid = priv->nodeid;
-			req->msg = msg;
-			req->buffer = mptr;
-			req->len = msize;
+			PMIXP_UCX_DEBUG_SND("enqueued", (&req_init));
+			*req = req_init;
 			pmixp_rlist_enq(&_snd_pending, (void*)req);
 			_activate_progress();
 		}
