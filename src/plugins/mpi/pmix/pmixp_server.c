@@ -1297,6 +1297,8 @@ static void *_wireup_thread(void *args)
 	pmixp_ep_t ep = {0};
 	int rc, i;
 	hostlist_t hl = slurm_hostlist_create(NULL);
+	char *dbg_message = NULL;
+	xstrfmtcat(dbg_message, "WIREUP/early: sending initiation message to nodeids: ");
 
 	/* Setup addressing information in the broadcast message */
 	for(i = 0; i < obj->node_count; i++) {
@@ -1306,6 +1308,7 @@ static void *_wireup_thread(void *args)
 			char *host = pmixp_info_job_host(nodeid);
 			pmixp_dconn_req_sent(dconn);
 			slurm_hostlist_push_host(hl, host);
+			xstrfmtcat(dbg_message, "%d ", nodeid);
 		}
 		pmixp_dconn_unlock(dconn);
 	}
@@ -1317,7 +1320,7 @@ static void *_wireup_thread(void *args)
 	buf = pmixp_server_buf_new();
 	PMIXP_BASE_HDR_SETUP(bhdr, PMIXP_MSG_INIT_DIRECT, /* unused */ 0, buf);
 
-	PMIXP_DEBUG("WIREUP/early: sending initiation message");
+	PMIXP_DEBUG("%s", dbg_message);
 	rc = _slurm_send(&ep, bhdr, buf);
 	FREE_NULL_BUFFER(buf);
 
