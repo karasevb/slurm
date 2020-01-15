@@ -39,13 +39,18 @@
 
 #include "pmixp_common.h"
 #include "pmixp_info.h"
+#include <time.h>
 
 #define MAX_MSG_SIZE 1024
 
 #define PMIXP_DEBUG(format, args...) {				\
-	debug("%s [%d]: %s:%d: " format "",			\
+	struct timeval tv;					\
+	double ts;						\
+	gettimeofday(&tv, NULL);				\
+	ts = tv.tv_sec + 1E-6 * tv.tv_usec;			\
+	debug("%s [%d]: [%.6lf] %s:%d: " format "",			\
 	      pmixp_info_hostname(), pmixp_info_nodeid(),	\
-	      THIS_FILE, __LINE__, ## args);			\
+	      ts, THIS_FILE, __LINE__, ## args);		\
 }
 
 #define PMIXP_ERROR_STD(format, args...) {			\
