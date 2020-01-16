@@ -62,7 +62,7 @@ static size_t _ucx_alen;
 static uint64_t _send_msg_id = 0, _recv_msg_id = 0;
 
 #define PMIXP_UCX_DEBUG(direction, state, req)                       \
-	PMIXP_DEBUG("UCX: %s [%s] to nodeid=%d, mid=%lu, size=%zu",  \
+	PMIXP_DEBUG("UCX: %s [%s] nodeid=%d, mid=%lu, size=%zu",  \
 	    direction, state, req->nodeid, req->msgid, req->len);
 
 #define PMIXP_UCX_DEBUG_SND(state, req) PMIXP_UCX_DEBUG("send", state, req)
