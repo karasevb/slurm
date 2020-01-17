@@ -300,7 +300,10 @@ static uint32_t _slurm_proto_msize(void *buf);
 static int _slurm_pack_hdr(pmixp_base_hdr_t *hdr, void *net);
 static int _slurm_proto_unpack_hdr(void *net, void *host);
 static void _slurm_new_msg(pmixp_conn_t *conn, void *_hdr, void *msg);
-static int _slurm_send(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr, Buf buf);
+static int _slurm_send_internal(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr,
+				Buf buf, const char *debugid);
+#define _slurm_send(ep, bhdr, buf) \
+	_slurm_send_internal(ep, bhdr, buf, __FUNCTION__)
 
 pmixp_p2p_data_t _slurm_proto = {
 	/* generic callbacks */
@@ -1610,7 +1613,8 @@ static int _slurm_proto_unpack_hdr(void *net, void *host)
 	return 0;
 }
 
-static int _slurm_send(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr, Buf buf)
+static int _slurm_send_internal(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr,
+		       Buf buf, const char *debugid)
 {
 	const char *addr = NULL, *data = NULL, *hostlist = NULL;
 	char nhdr[PMIXP_BASE_HDR_MAX];
@@ -1632,7 +1636,7 @@ static int _slurm_send(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr, Buf buf)
 	case PMIXP_EP_HLIST:
 		hostlist = ep->ep.hostlist;
 		rc = pmixp_stepd_send(ep->ep.hostlist, addr,
-				      data, dsize, 500, 7, 0);
+				      data, dsize, 500, 7, debugid);
 		break;
 	case PMIXP_EP_NOIDEID: {
 		char *nodename = pmixp_info_job_host(ep->ep.nodeid);
@@ -1642,7 +1646,7 @@ static int _slurm_send(pmixp_ep_t *ep, pmixp_base_hdr_t bhdr, Buf buf)
 		xstrsubstitute(address, "%h", nodename);
 
 		rc = pmixp_p2p_send(nodename, address, data, dsize,
-				    500, 7, 0);
+				    500, 7, debugid);
 		xfree(address);
 		xfree(nodename);
 		break;
