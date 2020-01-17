@@ -349,7 +349,7 @@ bool pmixp_fd_write_ready(int fd, int *shutdown)
 int pmixp_stepd_send(const char *nodelist, const char *address,
 		     const char *data, uint32_t len,
 		     unsigned int start_delay,
-		     unsigned int retry_cnt, int silent)
+		     unsigned int retry_cnt, const char *debugid)
 {
 
 	int retry = 0, rc;
@@ -357,8 +357,9 @@ int pmixp_stepd_send(const char *nodelist, const char *address,
 	char *copy_of_nodelist = xstrdup(nodelist);
 
 	while (1) {
-		if (!silent && retry >= 1) {
-			PMIXP_DEBUG("send failed, rc=%d, try #%d", rc, retry);
+		if (retry >= 1) {
+			PMIXP_DEBUG("retransmit from \"%s\". attempt #%d; rc=%d; targets=%s",
+				    debugid, retry, rc, copy_of_nodelist);
 		}
 
 		rc = slurm_forward_data(&copy_of_nodelist, (char *)address,
@@ -449,7 +450,7 @@ static int _pmix_p2p_send_core(const char *nodename, const char *address,
 
 int pmixp_p2p_send(const char *nodename, const char *address, const char *data,
 		   uint32_t len, unsigned int start_delay,
-		   unsigned int retry_cnt, int silent)
+		   unsigned int retry_cnt, const char *debugid)
 {
 	int retry = 0, rc;
 	unsigned int delay = start_delay; /* in milliseconds */
@@ -457,8 +458,9 @@ int pmixp_p2p_send(const char *nodename, const char *address, const char *data,
 	pmixp_debug_hang(0);
 
 	while (1) {
-		if (!silent && retry >= 1) {
-			PMIXP_DEBUG("send failed, rc=%d, try #%d", rc, retry);
+		if (retry >= 1) {
+			PMIXP_DEBUG("retransmit from \"%s\". attempt #%d; rc=%d; targets=%s",
+				    debugid, retry, rc, nodename);
 		}
 
 		rc = _pmix_p2p_send_core(nodename, address, data, len);
