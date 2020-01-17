@@ -502,10 +502,8 @@ static bool _ucx_progress()
 			rc = SLURM_ERROR;
 		}
 		xassert(_direct_hdr_set);
-		if (req->buffer) {
-			_direct_hdr.send_complete(req->msg,
-						  PMIXP_P2P_REGULAR, rc);
-		}
+		_direct_hdr.send_complete(req->msg,
+					  PMIXP_P2P_REGULAR, rc);
 		elem = pmixp_rlist_next(&_snd_complete, elem);
 	}
 
