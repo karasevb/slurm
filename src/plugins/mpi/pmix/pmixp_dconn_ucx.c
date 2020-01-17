@@ -305,7 +305,7 @@ err_worker:
 
 }
 
-static void _release_send_requests(pmixp_rlist_t *l)
+static void _release_send_requests(pmixp_rlist_t *l, char *type)
 {
 	size_t count = pmixp_rlist_count(l);
 	size_t i;
@@ -313,7 +313,8 @@ static void _release_send_requests(pmixp_rlist_t *l)
 		pmixp_ucx_req_t *req;
 		req = (pmixp_ucx_req_t*)pmixp_rlist_deq(l);
 		xassert(req);
-
+		PDEBUG("WARNING: %s: canceling send request: %p, status=%d",
+		       type, req, req->status);
 		ucp_request_cancel(ucp_worker, req);
 		if (req->buffer) {
 			/* NOTE: since we are finalizing, we don't really care
@@ -325,7 +326,7 @@ static void _release_send_requests(pmixp_rlist_t *l)
 	}
 }
 
-static void _release_recv_requests(pmixp_rlist_t *l)
+static void _release_recv_requests(pmixp_rlist_t *l, char *type)
 {
 	size_t count = pmixp_rlist_count(l);
 	size_t i;
@@ -334,6 +335,8 @@ static void _release_recv_requests(pmixp_rlist_t *l)
 		pmixp_ucx_req_t *req;
 		req = (pmixp_ucx_req_t*)pmixp_rlist_deq(l);
 		xassert(req);
+		PDEBUG("WARNING: %s: canceling recv request: %p, status=%d",
+		       type, req, req->status);
 		ucp_request_cancel(ucp_worker, req);
 		_recv_req_release(req);
 	}
@@ -342,11 +345,11 @@ static void _release_recv_requests(pmixp_rlist_t *l)
 void pmixp_dconn_ucx_stop()
 {
 	slurm_mutex_lock(&_ucx_worker_lock);
-	_release_send_requests(&_snd_pending);
-	_release_send_requests(&_snd_complete);
+	_release_send_requests(&_snd_pending, "_snd_pending");
+	_release_send_requests(&_snd_complete, "_snd_complete");
 
-	_release_recv_requests(&_rcv_pending);
-	_release_recv_requests(&_rcv_complete);
+	_release_recv_requests(&_rcv_pending, "_rcv_pending");
+	_release_recv_requests(&_rcv_complete, "_rcv_complete");
 	slurm_mutex_unlock(&_ucx_worker_lock);
 }
 
@@ -509,10 +512,8 @@ static bool _ucx_progress()
 			rc = SLURM_ERROR;
 		}
 		xassert(_direct_hdr_set);
-		if (req->buffer) {
-			_direct_hdr.send_complete(req->msg,
-						  PMIXP_P2P_REGULAR, rc);
-		}
+		_direct_hdr.send_complete(req->msg,
+					  PMIXP_P2P_REGULAR, rc);
 		elem = pmixp_rlist_next(&_snd_complete, elem);
 	}
 
