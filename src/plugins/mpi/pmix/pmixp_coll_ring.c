@@ -97,14 +97,14 @@ static void _ring_sent_cb(int rc, pmixp_p2p_ctx_t ctx, void *_cbdata)
 		slurm_mutex_lock(&coll->lock);
 	}
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: called %d", coll_ctx, coll_ctx->seq);
+	PMIXP_DEBUG("%p: ctx=%p, collseq=%d", coll, coll_ctx, coll_ctx->seq);
 #endif
 	if (cbdata->seq != coll_ctx->seq) {
 		/* it seems like this collective was reset since the time
 		 * we initiated this send.
 		 * Just exit to avoid data corruption.
 		 */
-		PMIXP_DEBUG("%p: collective was reset!", coll_ctx);
+		PMIXP_DEBUG("%p: collective was reset!", coll);
 		goto exit;
 	}
 	coll_ctx->forward_cnt++;
@@ -265,8 +265,8 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 	pmixp_coll_ring_ctx_sanity_check(coll_ctx);
 
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: transit data to nodeid=%d, seq=%d, hop=%d, size=%lu, contrib=%d",
-		    coll_ctx, _ring_next_id(coll), hdr.seq,
+	PMIXP_DEBUG("%p: ctx=%p transit to nodeid=%d, collseq=%d, hopseq=%d, size=%lu, contrib_id=%d",
+		    coll, coll_ctx, _ring_next_id(coll), hdr.seq,
 		    hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
 #endif
 	if (!buf) {
@@ -300,7 +300,7 @@ static void _reset_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 {
 	pmixp_coll_t *coll = _ctx_get_coll(coll_ctx);
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: called", coll_ctx);
+	PMIXP_DEBUG("%p: ctx=%p", coll, coll_ctx);
 #endif
 	pmixp_coll_ring_ctx_sanity_check(coll_ctx);
 	coll_ctx->in_use = false;
@@ -333,6 +333,8 @@ static void _libpmix_cb(void *_vcbdata)
 	slurm_mutex_unlock(&coll->lock);
 
 	xfree(cbdata);
+
+	PMIXP_DEBUG("%p: buffers released", coll);
 }
 
 static void _invoke_callback(pmixp_coll_ring_ctx_t *coll_ctx)
@@ -390,7 +392,8 @@ static void _progress_coll_ring(pmixp_coll_ring_ctx_t *coll_ctx)
 		case PMIXP_COLL_RING_FINALIZE:
 			if(_ring_fwd_done(coll_ctx)) {
 #ifdef PMIXP_COLL_DEBUG
-				PMIXP_DEBUG("%p: %s seq=%d is DONE", coll,
+				PMIXP_DEBUG("%p: ctx=%p [%s] collseq=%d COMPLETED",
+					    coll, coll_ctx,
 					    pmixp_coll_type2str(coll->type),
 					    coll_ctx->seq);
 #endif
@@ -587,8 +590,9 @@ int pmixp_coll_ring_local(pmixp_coll_t *coll, char *data, size_t size,
 	}
 
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%d, size=%lu",
-		    coll_ctx, coll_ctx->seq, coll_ctx->state, size);
+	PMIXP_DEBUG("%p: ctx=%p, contrib/loc: collseq=%u, state=%d, contrib=%d, size=%lu",
+		    coll, coll_ctx, coll_ctx->seq, coll_ctx->state,
+		    coll->my_peerid, size);
 #endif
 
 	if (_pmixp_coll_contrib(coll_ctx, coll->my_peerid, 0, data, size)) {
@@ -661,8 +665,8 @@ int pmixp_coll_ring_neighbor(pmixp_coll_t *coll, pmixp_coll_ring_msg_hdr_t *hdr,
 		goto exit;
 	}
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: contrib/nbr: seqnum=%u, state=%d, nodeid=%d, contrib=%d, seq=%d, size=%lu",
-		    coll_ctx, coll_ctx->seq, coll_ctx->state, hdr->nodeid,
+	PMIXP_DEBUG("%p: ctx=%p contrib/nbr: collseq=%u, state=%d, nodeid=%d, contrib=%d, hopseq=%d, size=%lu",
+		    coll, coll_ctx, coll_ctx->seq, coll_ctx->state, hdr->nodeid,
 		    hdr->contrib_id, hdr->hop_seq, hdr->msgsize);
 #endif
 
