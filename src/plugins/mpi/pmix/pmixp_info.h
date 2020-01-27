@@ -87,6 +87,10 @@ bool pmixp_info_srv_direct_conn_early(void);
 bool pmixp_info_srv_direct_conn_ucx(void);
 int pmixp_info_srv_fence_coll_type(void);
 bool pmixp_info_srv_fence_coll_barrier(void);
+uint32_t pmixp_info_serialize(pmix_jobinfo_t *jobinfo,
+			      Buf *serialized_buf);
+void pmixp_info_deserialize(Buf serialized_buf,
+			    pmix_jobinfo_t *jobinfo);
 
 
 static inline int pmixp_info_timeout(void)

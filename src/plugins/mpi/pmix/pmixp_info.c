@@ -517,3 +517,129 @@ static int _env_set(char ***env)
 
 	return SLURM_SUCCESS;
 }
+
+#define PMIXP_PACKHOSTLIST(_hl, _buf)			\
+{							\
+	char *hosts;					\
+	hosts = hostlist_deranged_string_xmalloc(_hl);	\
+	packstr(hosts, _buf);				\
+	xfree(hosts);					\
+}
+
+#define PMIXP_UNPACHOSTLIST(_hl, _buf)			\
+{							\
+	char *tmp_str;					\
+	uint32_t len;					\
+	unpackstr_xmalloc(&tmp_str, &len,		\
+			  serialized_buf);		\
+	_hl = hostlist_create(tmp_str);			\
+	xfree(tmp_str);					\
+}
+
+#define PMIXP_UNPACKINT(_intval, _buf)			\
+{							\
+	uint32_t val32;					\
+	unpack32(&val32, _buf);				\
+	_intval = (int)val32;				\
+}
+
+uint32_t pmixp_info_serialize(pmix_jobinfo_t *jobinfo,
+			      Buf *serialized_buf) {
+	Buf buffer = init_buf(0);
+	uint32_t i, size;
+
+#ifndef NDEBUG
+	xassert(jobinfo->magic == PMIXP_INFO_MAGIC);
+	pack32(jobinfo->magic, buffer);
+#endif
+	packstr(jobinfo->nspace, buffer);
+	pack32(jobinfo->jobid, buffer);
+	pack32(jobinfo->stepid, buffer);
+	pack32(jobinfo->nnodes, buffer);
+	pack32(jobinfo->nnodes_job, buffer);
+	pack32(jobinfo->ntasks, buffer);
+	pack32(jobinfo->ntasks_job, buffer);
+	pack32(jobinfo->ncpus_job, buffer);
+	/* task_cnts */
+	for (i = 0; i < jobinfo->nnodes; i++) {
+		pack32(jobinfo->task_cnts[i], buffer);
+	}
+	pack32((uint32_t)jobinfo->node_id, buffer);
+	pack32((uint32_t)jobinfo->node_id_job, buffer);
+	PMIXP_PACKHOSTLIST(jobinfo->job_hl, buffer);
+	PMIXP_PACKHOSTLIST(jobinfo->step_hl, buffer);
+	packstr(jobinfo->hostname, buffer);
+	pack32((uint32_t)jobinfo->node_tasks, buffer);
+	for (i = 0; i < jobinfo->node_tasks; i++) {
+		pack32(jobinfo->gtids[i], buffer);
+	}
+	packstr(jobinfo->task_map_packed, buffer);
+	pack32((uint32_t)jobinfo->timeout, buffer);
+	packstr(jobinfo->cli_tmpdir, buffer);
+	packstr(jobinfo->cli_tmpdir_base, buffer);
+	packstr(jobinfo->lib_tmpdir, buffer);
+	packstr(jobinfo->server_addr_unfmt, buffer);
+	packstr(jobinfo->spool_dir, buffer);
+	pack32((uint32_t)jobinfo->uid, buffer);
+	pack32((uint32_t)jobinfo->gid, buffer);
+	*serialized_buf = buffer;
+
+	size = get_buf_offset(buffer);
+	set_buf_offset(buffer, 0);
+
+	return size;
+}
+
+void pmixp_info_deserialize(Buf serialized_buf,
+			    pmix_jobinfo_t *jobinfo) {
+	uint32_t len, i;
+	char *tmp_str = NULL;
+	size_t msize;
+
+#ifndef NDEBUG
+	unpack32(jobinfo->magic, serialized_buf);
+	xassert(jobinfo->magic == PMIXP_INFO_MAGIC);
+#endif
+	unpackstr_xmalloc(&tmp_str, &len, serialized_buf);
+	xassert(strlen(tmp_str)+1 < PMIXP_MAX_NSLEN);
+	memcpy(jobinfo->nspace, tmp_str, strlen(tmp_str)+1);
+	xfree(tmp_str);
+
+	unpack32(&jobinfo->jobid, serialized_buf);
+	unpack32(&jobinfo->stepid, serialized_buf);
+	unpack32(&jobinfo->nnodes, serialized_buf);
+	unpack32(&jobinfo->nnodes_job, serialized_buf);
+	unpack32(&jobinfo->ntasks, serialized_buf);
+	unpack32(&jobinfo->ntasks_job, serialized_buf);
+	unpack32(&jobinfo->ncpus_job, serialized_buf);
+
+	msize = jobinfo->nnodes * sizeof(uint32_t);
+	jobinfo->task_cnts = xmalloc(msize);
+	for (i = 0; i < jobinfo->nnodes; i++) {
+		unpack32(&jobinfo->task_cnts[i], serialized_buf);
+	}
+	PMIXP_UNPACKINT(jobinfo->node_id, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->node_id_job, serialized_buf);
+
+	PMIXP_UNPACHOSTLIST(jobinfo->job_hl, serialized_buf);
+	PMIXP_UNPACHOSTLIST(jobinfo->step_hl, serialized_buf);
+
+	unpackstr_xmalloc(&jobinfo->hostname, &len, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->node_tasks, serialized_buf);
+
+	msize = jobinfo->node_tasks * sizeof(uint32_t);
+	jobinfo->gtids = xmalloc(msize);
+	for (i = 0; i < jobinfo->node_tasks; i++) {
+		unpack32(&jobinfo->gtids[i], serialized_buf);
+	}
+
+	unpackstr_xmalloc(&jobinfo->task_map_packed, &len, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->timeout, serialized_buf);
+	unpackstr_xmalloc(&jobinfo->cli_tmpdir, &len, serialized_buf);
+	unpackstr_xmalloc(&jobinfo->cli_tmpdir_base, &len, serialized_buf);
+	unpackstr_xmalloc(&jobinfo->lib_tmpdir, &len, serialized_buf);
+	unpackstr_xmalloc(&jobinfo->server_addr_unfmt, &len, serialized_buf);
+	unpackstr_xmalloc(&jobinfo->spool_dir, &len, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->uid, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->gid, serialized_buf);
+}

@@ -370,10 +370,12 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 	char *path;
 	int fd, rc;
 
+#if 0
 	if (SLURM_SUCCESS != (rc = pmixp_info_set(job, env))) {
 		PMIXP_ERROR("pmixp_info_set(job, env) failed");
 		goto err_info;
 	}
+#endif
 
 	/* Create UNIX socket for slurmd communication */
 	path = pmixp_info_nspace_usock(pmixp_info_namespace());

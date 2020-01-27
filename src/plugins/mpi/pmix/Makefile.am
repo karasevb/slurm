@@ -1,5 +1,7 @@
 # Makefile for mpi/pmix plugin
 
+SUBDIRS = pmixpd
+
 AUTOMAKE_OPTIONS = foreign
 
 PLUGIN_FLAGS = -module -avoid-version --export-dynamic

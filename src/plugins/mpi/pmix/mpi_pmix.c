@@ -145,6 +145,8 @@ extern int fini(void)
 	return SLURM_SUCCESS;
 }
 
+
+
 extern int p_mpi_hook_slurmstepd_prefork(
 	const stepd_step_rec_t *job, char ***env)
 {
@@ -154,6 +156,72 @@ extern int p_mpi_hook_slurmstepd_prefork(
 
 	if (job->batch)
 		return SLURM_SUCCESS;
+
+	if (SLURM_SUCCESS != (ret = pmixp_info_set(job, env))) {
+		PMIXP_ERROR("pmixp_info_set(job, env) failed");
+		goto err_ext;
+	}
+
+	volatile int delay = 0;
+	while(delay) sleep(1);
+
+	//pmix_jobinfo_t job_info;
+	//_serialize_pmix_info(&_pmixp_job_info, &job_info_buf);
+	//_deserialize_pmix_info(job_info_buf, &	job_info);
+
+	pid_t pid;
+	int to_pmixpd[2] = {-1, -1};
+	int to_stepd[2] = {-1, -1};
+
+	if (pipe(to_stepd) < 0 || pipe(to_pmixpd) < 0) {
+		error("%s: pipe failed: %m", __func__);
+		return SLURM_ERROR;
+	}
+
+	if ((pid = fork()) < 0) {
+		error("%s: fork: %m", __func__);
+		return SLURM_ERROR;
+	} else if (pid > 0) {
+		Buf job_info_buf;
+		uint32_t len;
+
+		if (close(to_pmixpd[0]) < 0)
+			error("Unable to close read to_pmixpd in parent: %m");
+		if (close(to_stepd[1]) < 0)
+			error("Unable to close write to_stepd in parent: %m");
+
+		len = pmixp_info_serialize(&_pmixp_job_info, &job_info_buf);
+		safe_write(to_pmixpd[1], &len, sizeof(len));
+		safe_write(to_pmixpd[1], get_buf_data(job_info_buf), len);
+		/* Reap child */
+		if (waitpid(pid, NULL, 0) < 0)
+			error("Unable to reap slurmd child process");
+		if (close(to_stepd[1]) < 0)
+			error("close write to_stepd in parent: %m");
+		if (close(to_pmixpd[0]) < 0)
+			error("close read to_slurmd in parent: %m");
+	} else {
+		char *const argv[2] = { "/sandbox/slurm/sbin/pmixpd", NULL};
+
+		if (close(to_pmixpd[1]) < 0)
+			error("close write to_pmixpd in grandchild: %m");
+		if (close(to_stepd[0]) < 0)
+			error("close read to_stepd in parent: %m");
+
+		(void) close(STDIN_FILENO); /* ignore return */
+		if (dup2(to_pmixpd[0], STDIN_FILENO) == -1) {
+			error("dup2 over STDIN_FILENO: %m");
+			exit(1);
+		}
+		fd_set_close_on_exec(to_pmixpd[0]);
+		(void) close(STDOUT_FILENO); /* ignore return */
+		if (dup2(to_stepd[1], STDOUT_FILENO) == -1) {
+			error("dup2 over STDOUT_FILENO: %m");
+			exit(1);
+		}
+		fd_set_close_on_exec(to_stepd[1]);
+		execvp(argv[0], argv);
+	}
 
 	if (SLURM_SUCCESS != (ret = pmixp_stepd_init(job, env))) {
 		PMIXP_ERROR("pmixp_stepd_init() failed");
@@ -165,6 +233,7 @@ extern int p_mpi_hook_slurmstepd_prefork(
 	}
 	return SLURM_SUCCESS;
 
+rwfail: // TODO
 err_ext:
 	/* Abort the whole job if error! */
 	slurm_kill_job_step(job->jobid, job->stepid, SIGKILL);
