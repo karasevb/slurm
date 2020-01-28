@@ -173,6 +173,7 @@ static int _load_ucx_lib()
 	setenv("UCX_MEM_MALLOC_HOOKS", "no", 1);
 	setenv("UCX_MEM_MALLOC_RELOC", "no", 1);
 	setenv("UCX_MEM_EVENTS", "no", 1);
+    setenv("UCX_ZCOPY_THRESH", "inf", 1);
 
 #ifdef PMIXP_UCX_LIBPATH
 	/* If this Slurm build doesn't allow RPATH's
