@@ -125,6 +125,10 @@ static inline char *pmixp_info_tmpdir_lib(void)
 	return _pmixp_job_info.lib_tmpdir;
 }
 
+/* Profiling setting */
+bool pmixp_info_prof_delayed(void);
+size_t pmixp_info_prof_bufsize(void);
+
 /* Dealing with I/O */
 void pmixp_info_io_set(eio_handle_t *h);
 eio_handle_t *pmixp_info_io(void);

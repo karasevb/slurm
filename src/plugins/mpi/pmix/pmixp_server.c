@@ -374,10 +374,14 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 	char *path;
 	int fd, rc;
 
+
 	if (SLURM_SUCCESS != (rc = pmixp_info_set(job, env))) {
 		PMIXP_ERROR("pmixp_info_set(job, env) failed");
 		goto err_info;
 	}
+
+	/* Initialize lightweight profiling interface */
+	PMIXP_PROF_INIT(8);
 
 	/* Create UNIX socket for slurmd communication */
 	path = pmixp_info_nspace_usock(pmixp_info_namespace());
@@ -483,6 +487,8 @@ int pmixp_stepd_finalize(void)
 	path = pmixp_info_nspace_usock(pmixp_info_namespace());
 	unlink(path);
 	xfree(path);
+
+	PMIXP_PROF_FINI();
 
 	/* free the information */
 	pmixp_info_free();

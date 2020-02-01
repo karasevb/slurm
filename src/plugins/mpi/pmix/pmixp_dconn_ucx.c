@@ -58,16 +58,6 @@ ucp_worker_h ucp_worker;
 static ucp_address_t *_ucx_addr;
 static size_t _ucx_alen;
 
-/* UCX debug variables */
-static uint64_t _send_msg_id = 0, _recv_msg_id = 0;
-
-#define PMIXP_UCX_DEBUG(direction, state, req)                       \
-	PMIXP_DEBUG("UCX: %s [%s] nodeid=%d, mid=%lu, size=%zu",  \
-	    direction, state, req->nodeid, req->msgid, req->len);
-
-#define PMIXP_UCX_DEBUG_SND(state, req) PMIXP_UCX_DEBUG("send", state, req)
-#define PMIXP_UCX_DEBUG_RCV(state, req) PMIXP_UCX_DEBUG("recv", state, req)
-
 typedef enum {
 	PMIXP_UCX_ACTIVE = 0,
 	PMIXP_UCX_COMPLETE,
@@ -93,6 +83,84 @@ typedef struct {
 	pmixp_rlist_t pending;
 } pmixp_dconn_ucx_t;
 
+/* UCX debug variables */
+static uint64_t _send_msg_id = 0, _recv_msg_id = 0;
+
+static void _ucx_prof_output(double ts, char *direction, char *state, int nodeid,
+			     uint64_t msgid, size_t len)
+
+{
+	PMIXP_DEBUG_TS(ts, "UCX: %s [%s] nodeid=%d, mid=%lu, size=%zu",
+		    direction, state, nodeid, msgid, len);
+}
+
+#ifndef PMIXP_PROFILE_DELAY
+#define PMIXP_UCX_PROFILE(direction, state, req) {             \
+	double ts;                                             \
+	PMIXP_DEBUG_GET_TS(ts);                                \
+	_ucx_prof_output(ts, direction, state, req->nodeid,    \
+			 req->msgid, req->len);                \
+}
+#else
+
+static void _ucx_prof_deserialize_out(void *priv,
+				      double ts, size_t size, char data[])
+{
+	char *direction, *state;
+	int nodeid;
+	uint64_t msgid;
+	size_t len;
+	size_t offset = 0;
+	size_t buf_size = sizeof(direction) + sizeof(state) +
+			sizeof(nodeid) + sizeof(msgid) +
+			sizeof(len);
+	xassert(buf_size == size);
+
+	PMIXP_PROF_DESERIALIZE(data, size, offset, direction);
+	PMIXP_PROF_DESERIALIZE(data, size, offset, state);
+	PMIXP_PROF_DESERIALIZE(data, size, offset, nodeid);
+	PMIXP_PROF_DESERIALIZE(data, size, offset, msgid);
+	PMIXP_PROF_DESERIALIZE(data, size, offset, len);
+
+	_ucx_prof_output(ts, direction, state, nodeid, msgid, len);
+}
+
+PMIXP_PROFILE_DEFINE(static, _ucx_prof, NULL, _ucx_prof_deserialize_out)
+
+static void _ucx_prof_serialize(char *direction, char *state,
+				pmixp_ucx_req_t *req)
+{
+	size_t buf_size = sizeof(direction) + sizeof(state) +
+			sizeof(req->nodeid) + sizeof(req->msgid) +
+			sizeof(req->len);
+	char buf[buf_size];
+	size_t offset = 0;
+	PMIXP_PROF_SERIALIZE(buf, buf_size, offset, direction);
+	PMIXP_PROF_SERIALIZE(buf, buf_size, offset, state);
+	PMIXP_PROF_SERIALIZE(buf, buf_size, offset, req->nodeid);
+	PMIXP_PROF_SERIALIZE(buf, buf_size, offset, req->msgid);
+	PMIXP_PROF_SERIALIZE(buf, buf_size, offset, req->len);
+	PMIXP_PROFILE(&_ucx_prof, buf, buf_size);
+}
+
+#define PMIXP_UCX_PROFILE(direction, state, req) {                     \
+	if(PMIXP_PROFILE_DELAY()) {                                    \
+		_ucx_prof_serialize(direction, state, req);            \
+	} else {                                                       \
+		double ts;                                             \
+		PMIXP_DEBUG_GET_TS(ts)                                 \
+		_ucx_prof_output(ts, direction, state, req->nodeid,    \
+				 req->msgid, req->len);                \
+	}                                                              \
+}
+
+#endif
+
+#define PMIXP_UCX_PROF_SND(state, req) PMIXP_UCX_PROFILE("send", state, req)
+#define PMIXP_UCX_PROF_RCV(state, req) PMIXP_UCX_PROFILE("recv", state, req)
+
+
+
 static inline void _recv_req_release(pmixp_ucx_req_t *req)
 {
 	if (req->buffer) {
@@ -114,7 +182,7 @@ static void send_handle(void *request, ucs_status_t status)
 	pmixp_ucx_req_t *req = (pmixp_ucx_req_t *) request;
 	if (UCS_OK == status){
 		req->status = PMIXP_UCX_COMPLETE;
-		PMIXP_UCX_DEBUG_SND("completed", req);
+		PMIXP_UCX_PROF_SND("completed", req);
 	} else {
 		PMIXP_ERROR("UCX send request failed: %s",
 			    ucs_status_string(status));
@@ -455,7 +523,7 @@ static bool _ucx_progress()
 		req->buffer = msg;
 		req->len = info_tag.length;
 		req->msgid = _recv_msg_id++;
-		PMIXP_UCX_DEBUG_RCV("enqueued", req);
+		PMIXP_UCX_PROF_RCV("enqueued", req);
 		if (PMIXP_UCX_ACTIVE == req->status) {
 			/* this message is long enough, so it makes
 			 * sense to do the progres one more timer */
@@ -507,7 +575,7 @@ static bool _ucx_progress()
 		/* Skip failed receives
 		 * TODO: what more can we do? */
 		if (PMIXP_UCX_FAILED != req->status){
-			PMIXP_UCX_DEBUG_RCV("completed", req);
+			PMIXP_UCX_PROF_RCV("completed", req);
 			_ucx_process_msg(req->buffer, req->len);
 		}
 		elem = pmixp_rlist_next(&_rcv_complete, elem);
@@ -750,7 +818,7 @@ static int _ucx_send(void *_priv, void *msg)
 
 	slurm_mutex_lock(&_ucx_worker_lock);
 	if (!priv->connected) {
-		PMIXP_UCX_DEBUG_SND("pending", (&req_init));
+		PMIXP_UCX_PROF_SND("pending", (&req_init));
 		pmixp_rlist_enq(&priv->pending, msg);
 	} else {
 		pmixp_ucx_req_t *req = NULL;
@@ -767,10 +835,10 @@ static int _ucx_send(void *_priv, void *msg)
 			goto exit;
 		} else if (UCS_OK == UCS_PTR_STATUS(req)) {
 			/* defer release until we unlock ucp worker */
-			PMIXP_UCX_DEBUG_SND("completed", (&req_init));
+			PMIXP_UCX_PROF_SND("completed", (&req_init));
 			release = true;
 		} else {
-			PMIXP_UCX_DEBUG_SND("enqueued", (&req_init));
+			PMIXP_UCX_PROF_SND("enqueued", (&req_init));
 			*req = req_init;
 			pmixp_rlist_enq(&_snd_pending, (void*)req);
 			_activate_progress();

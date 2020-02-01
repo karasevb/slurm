@@ -61,6 +61,7 @@ static bool _direct_conn_ucx = false;
 #endif
 static int _srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 static bool _srv_fence_coll_barrier = false;
+static size_t _delayed_profile_bufsize = 0;
 
 pmix_jobinfo_t _pmixp_job_info;
 
@@ -105,7 +106,6 @@ bool pmixp_info_srv_wireup_threaded(void){
 	return _threaded_wireup && _direct_conn;
 }
 
-
 bool pmixp_info_srv_direct_conn_ucx(void){
 	return _direct_conn_ucx && _direct_conn;
 }
@@ -129,6 +129,17 @@ bool pmixp_info_srv_fence_coll_barrier(void)
 {
 	return _srv_fence_coll_barrier;
 }
+
+/* Profiling setting */
+bool pmixp_info_prof_delayed(void)
+{
+	return !!(_delayed_profile_bufsize);
+}
+size_t pmixp_info_prof_bufsize(void)
+{
+	return _delayed_profile_bufsize;
+}
+
 
 /* Job information */
 int pmixp_info_set(const stepd_step_rec_t *job, char ***env)
@@ -499,8 +510,6 @@ static int _env_set(char ***env)
 		}
 	}
 
-
-
 	p = getenvp(*env, PMIXP_DIRECT_CONN_EARLY_THREAD);
 	if (p) {
 		if (!xstrcmp("1", p) || !xstrcasecmp("true", p) ||
@@ -559,5 +568,18 @@ static int _env_set(char ***env)
 
 #endif
 
+	/* Profiling, only work with *this* daemon's environment! */
+	p = getenv(PMIXP_PROF_DELAYED);
+	if (p) {
+		_delayed_profile_bufsize = atoi(p);
+		if(_delayed_profile_bufsize < 0) {
+			_delayed_profile_bufsize = 0;
+		}
+		if( _delayed_profile_bufsize > PMIXP_DELAYED_PROF_MAX) {
+			PMIXP_ERROR("ERROR: Reduce the delayed profiling buffer size to %du, see PMIXP_DELAYED_PROF_MAX for the max limitation",
+				    PMIXP_DELAYED_PROF_MAX)
+			_delayed_profile_bufsize = PMIXP_DELAYED_PROF_MAX;
+		}
+	}
 	return SLURM_SUCCESS;
 }
