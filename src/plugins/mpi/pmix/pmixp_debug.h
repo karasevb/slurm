@@ -122,7 +122,8 @@
 #ifdef NDEBUG
 #define pmixp_debug_hang(x)
 #define PMIXP_DELAYED_PROF_MAX 0
-
+#define PMIXP_PROF_INIT(max_threads)
+#define PMIXP_PROF_FINI()
 #else
 
 /* Lightweight profiling interface */
