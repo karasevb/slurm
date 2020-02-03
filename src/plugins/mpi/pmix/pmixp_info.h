@@ -73,6 +73,8 @@ typedef struct {
 	char *spool_dir;
 	uid_t uid;
 	gid_t gid;
+    int log_fd;
+    int log_level;
 } pmix_jobinfo_t;
 
 extern pmix_jobinfo_t _pmixp_job_info;
@@ -91,7 +93,7 @@ uint32_t pmixp_info_serialize(pmix_jobinfo_t *jobinfo,
 			      Buf *serialized_buf);
 void pmixp_info_deserialize(Buf serialized_buf,
 			    pmix_jobinfo_t *jobinfo);
-
+int pmixp_env_set(char ***env);
 
 static inline int pmixp_info_timeout(void)
 {

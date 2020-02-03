@@ -366,6 +366,11 @@ err_exit:
 	return SLURM_ERROR;
 }
 
+int pmixp_env_set(char ***env)
+{
+    return _env_set(env);
+}
+
 static int _env_set(char ***env)
 {
 	char *p = NULL;
@@ -582,6 +587,8 @@ uint32_t pmixp_info_serialize(pmix_jobinfo_t *jobinfo,
 	packstr(jobinfo->spool_dir, buffer);
 	pack32((uint32_t)jobinfo->uid, buffer);
 	pack32((uint32_t)jobinfo->gid, buffer);
+	pack32((uint32_t)jobinfo->log_fd, buffer);
+	pack32((uint32_t)jobinfo->log_level, buffer);
 	*serialized_buf = buffer;
 
 	size = get_buf_offset(buffer);
@@ -642,4 +649,6 @@ void pmixp_info_deserialize(Buf serialized_buf,
 	unpackstr_xmalloc(&jobinfo->spool_dir, &len, serialized_buf);
 	PMIXP_UNPACKINT(jobinfo->uid, serialized_buf);
 	PMIXP_UNPACKINT(jobinfo->gid, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->log_fd, serialized_buf);
+	PMIXP_UNPACKINT(jobinfo->log_level, serialized_buf);
 }

@@ -140,7 +140,15 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(sbindir)"
 PROGRAMS = $(sbin_PROGRAMS)
-am_pmixpd_OBJECTS = pmixpd.$(OBJEXT) pmixp_info.$(OBJEXT)
+am_pmixpd_OBJECTS = pmixpd.$(OBJEXT) pmixp_agent.$(OBJEXT) \
+	pmixp_client.$(OBJEXT) pmixp_nspaces.$(OBJEXT) \
+	pmixp_info.$(OBJEXT) pmixp_server.$(OBJEXT) \
+	pmixp_state.$(OBJEXT) pmixp_io.$(OBJEXT) pmixp_utils.$(OBJEXT) \
+	pmixp_dmdx.$(OBJEXT) pmixp_conn.$(OBJEXT) \
+	pmixp_dconn.$(OBJEXT) pmixp_dconn_tcp.$(OBJEXT) \
+	pmixp_coll.$(OBJEXT) pmixp_coll_tree.$(OBJEXT) \
+	pmixp_coll_ring.$(OBJEXT) pmixp_dconn_ucx.$(OBJEXT) \
+	pmixp_client_v2.$(OBJEXT)
 pmixpd_OBJECTS = $(am_pmixpd_OBJECTS)
 am__DEPENDENCIES_1 =
 AM_V_lt = $(am__v_lt_@AM_V@)
@@ -345,6 +353,8 @@ PATH_SEPARATOR = @PATH_SEPARATOR@
 PKG_CONFIG = @PKG_CONFIG@
 PKG_CONFIG_LIBDIR = @PKG_CONFIG_LIBDIR@
 PKG_CONFIG_PATH = @PKG_CONFIG_PATH@
+PMIXD_UCX_LDFLAGS = @PMIXD_UCX_LDFLAGS@
+PMIXD_V3_LDFLAGS = @PMIXD_V3_LDFLAGS@
 PMIX_V1_CPPFLAGS = @PMIX_V1_CPPFLAGS@
 PMIX_V1_LDFLAGS = @PMIX_V1_LDFLAGS@
 PMIX_V2_CPPFLAGS = @PMIX_V2_CPPFLAGS@
@@ -456,7 +466,9 @@ top_srcdir = @top_srcdir@
 AUTOMAKE_OPTIONS = foreign
 pmixp_dir = $(top_srcdir)/src/plugins/mpi/pmix
 depend_libs = \
-	$(top_builddir)/src/common/libdaemonize.la
+	$(top_builddir)/src/common/libdaemonize.la \
+	$(top_builddir)/src/slurmd/common/libslurmd_common.la \
+	$(top_builddir)/src/slurmd/common/libslurmd_reverse_tree_math.la
 
 
 # If slurmstepd_LDADD or slurmstepd_LDFLAGS change
@@ -468,12 +480,37 @@ depend_libs = \
 # what is happening.
 # depend_ldadd = $(HWLOC_LIBS) $(PAM_LIBS) $(UTIL_LIBS)
 # depend_ldflags = $(HWLOC_LDFLAGS)
-AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS)
-pmixpd_LDADD = $(depend_libs) $(LIB_SLURM) $(DL_LIBS) $(depend_ldadd)
-pmixpd_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) $(depend_ldflags)
+pmix_internal_libs = \
+	$(top_builddir)/src/slurmd/common/libslurmd_reverse_tree_math.la \
+	$(top_builddir)/src/common/libcommon.la
+
+pmix_ldflags = $(PLUGIN_FLAGS) $(HWLOC_LDFLAGS) $(UCX_LDFLAGS)
+pmix_libadd = $(pmix_internal_libs) $(HWLOC_LIBS) $(UCX_LIBS)
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src/common $(HWLOC_CPPFLAGS) $(UCX_CPPFLAGS) -I$(pmixp_dir) $(PMIX_V3_CPPFLAGS) -DHAVE_PMIX_VER=3
+pmixpd_LDADD = $(depend_libs) $(LIB_SLURM) $(DL_LIBS) $(depend_ldadd) $(pmix_iternal_libs) $(PMIXD_UCX_LDFLAGS) -ldl
+pmixpd_LDFLAGS = -export-dynamic $(CMD_LDFLAGS) $(depend_ldflags) $(PMIXD_V3_LDFLAGS)
 pmixpd_SOURCES = \
 	pmixpd.c \
-	$(pmixp_dir)/pmixp_info.c
+	$(pmixp_dir)/pmixp_common.h \
+	$(pmixp_dir)/pmixp_coll.h \
+	$(pmixp_dir)/pmixp_agent.c $(pmixp_dir)/pmixp_client.c \
+	$(pmixp_dir)/pmixp_nspaces.c $(pmixp_dir)/pmixp_info.c \
+	$(pmixp_dir)/pmixp_agent.h $(pmixp_dir)/pmixp_client.h \
+	$(pmixp_dir)/pmixp_nspaces.h $(pmixp_dir)/pmixp_info.h \
+	$(pmixp_dir)/pmixp_server.c $(pmixp_dir)/pmixp_state.c \
+	$(pmixp_dir)/pmixp_io.c $(pmixp_dir)/pmixp_utils.c \
+	$(pmixp_dir)/pmixp_dmdx.c \
+	$(pmixp_dir)/pmixp_server.h $(pmixp_dir)/pmixp_state.h \
+	$(pmixp_dir)/pmixp_io.h $(pmixp_dir)/pmixp_utils.h \
+	$(pmixp_dir)/pmixp_dmdx.h \
+	$(pmixp_dir)/pmixp_conn.c $(pmixp_dir)/pmixp_dconn.c \
+	$(pmixp_dir)/pmixp_dconn_tcp.c \
+	$(pmixp_dir)/pmixp_conn.h $(pmixp_dir)/pmixp_dconn.h \
+	$(pmixp_dir)/pmixp_dconn_tcp.h \
+	$(pmixp_dir)/pmixp_coll.c $(pmixp_dir)/pmixp_coll_tree.c \
+	$(pmixp_dir)/pmixp_coll_ring.c \
+	$(pmixp_dir)/pmixp_dconn_ucx.c $(pmixp_dir)/pmixp_dconn_ucx.h \
+	$(pmixp_dir)/pmixp_client_v2.c
 
 pmixpd_DEPENDENCIES = $(depend_libs) $(LIB_SLURM_BUILD)
 all: all-am
@@ -570,7 +607,23 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_agent.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_client.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_client_v2.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_coll.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_coll_ring.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_coll_tree.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_conn.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_dconn.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_dconn_tcp.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_dconn_ucx.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_dmdx.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_info.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_io.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_nspaces.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_server.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_state.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixp_utils.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pmixpd.Po@am__quote@
 
 .c.o:
@@ -594,6 +647,48 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
 
+pmixp_agent.o: $(pmixp_dir)/pmixp_agent.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_agent.o -MD -MP -MF $(DEPDIR)/pmixp_agent.Tpo -c -o pmixp_agent.o `test -f '$(pmixp_dir)/pmixp_agent.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_agent.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_agent.Tpo $(DEPDIR)/pmixp_agent.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_agent.c' object='pmixp_agent.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_agent.o `test -f '$(pmixp_dir)/pmixp_agent.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_agent.c
+
+pmixp_agent.obj: $(pmixp_dir)/pmixp_agent.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_agent.obj -MD -MP -MF $(DEPDIR)/pmixp_agent.Tpo -c -o pmixp_agent.obj `if test -f '$(pmixp_dir)/pmixp_agent.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_agent.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_agent.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_agent.Tpo $(DEPDIR)/pmixp_agent.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_agent.c' object='pmixp_agent.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_agent.obj `if test -f '$(pmixp_dir)/pmixp_agent.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_agent.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_agent.c'; fi`
+
+pmixp_client.o: $(pmixp_dir)/pmixp_client.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_client.o -MD -MP -MF $(DEPDIR)/pmixp_client.Tpo -c -o pmixp_client.o `test -f '$(pmixp_dir)/pmixp_client.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_client.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_client.Tpo $(DEPDIR)/pmixp_client.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_client.c' object='pmixp_client.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_client.o `test -f '$(pmixp_dir)/pmixp_client.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_client.c
+
+pmixp_client.obj: $(pmixp_dir)/pmixp_client.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_client.obj -MD -MP -MF $(DEPDIR)/pmixp_client.Tpo -c -o pmixp_client.obj `if test -f '$(pmixp_dir)/pmixp_client.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_client.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_client.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_client.Tpo $(DEPDIR)/pmixp_client.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_client.c' object='pmixp_client.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_client.obj `if test -f '$(pmixp_dir)/pmixp_client.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_client.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_client.c'; fi`
+
+pmixp_nspaces.o: $(pmixp_dir)/pmixp_nspaces.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_nspaces.o -MD -MP -MF $(DEPDIR)/pmixp_nspaces.Tpo -c -o pmixp_nspaces.o `test -f '$(pmixp_dir)/pmixp_nspaces.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_nspaces.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_nspaces.Tpo $(DEPDIR)/pmixp_nspaces.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_nspaces.c' object='pmixp_nspaces.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_nspaces.o `test -f '$(pmixp_dir)/pmixp_nspaces.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_nspaces.c
+
+pmixp_nspaces.obj: $(pmixp_dir)/pmixp_nspaces.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_nspaces.obj -MD -MP -MF $(DEPDIR)/pmixp_nspaces.Tpo -c -o pmixp_nspaces.obj `if test -f '$(pmixp_dir)/pmixp_nspaces.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_nspaces.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_nspaces.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_nspaces.Tpo $(DEPDIR)/pmixp_nspaces.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_nspaces.c' object='pmixp_nspaces.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_nspaces.obj `if test -f '$(pmixp_dir)/pmixp_nspaces.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_nspaces.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_nspaces.c'; fi`
+
 pmixp_info.o: $(pmixp_dir)/pmixp_info.c
 @am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_info.o -MD -MP -MF $(DEPDIR)/pmixp_info.Tpo -c -o pmixp_info.o `test -f '$(pmixp_dir)/pmixp_info.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_info.c
 @am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_info.Tpo $(DEPDIR)/pmixp_info.Po
@@ -607,6 +702,188 @@ pmixp_info.obj: $(pmixp_dir)/pmixp_info.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_info.c' object='pmixp_info.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_info.obj `if test -f '$(pmixp_dir)/pmixp_info.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_info.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_info.c'; fi`
+
+pmixp_server.o: $(pmixp_dir)/pmixp_server.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_server.o -MD -MP -MF $(DEPDIR)/pmixp_server.Tpo -c -o pmixp_server.o `test -f '$(pmixp_dir)/pmixp_server.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_server.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_server.Tpo $(DEPDIR)/pmixp_server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_server.c' object='pmixp_server.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_server.o `test -f '$(pmixp_dir)/pmixp_server.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_server.c
+
+pmixp_server.obj: $(pmixp_dir)/pmixp_server.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_server.obj -MD -MP -MF $(DEPDIR)/pmixp_server.Tpo -c -o pmixp_server.obj `if test -f '$(pmixp_dir)/pmixp_server.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_server.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_server.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_server.Tpo $(DEPDIR)/pmixp_server.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_server.c' object='pmixp_server.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_server.obj `if test -f '$(pmixp_dir)/pmixp_server.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_server.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_server.c'; fi`
+
+pmixp_state.o: $(pmixp_dir)/pmixp_state.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_state.o -MD -MP -MF $(DEPDIR)/pmixp_state.Tpo -c -o pmixp_state.o `test -f '$(pmixp_dir)/pmixp_state.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_state.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_state.Tpo $(DEPDIR)/pmixp_state.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_state.c' object='pmixp_state.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_state.o `test -f '$(pmixp_dir)/pmixp_state.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_state.c
+
+pmixp_state.obj: $(pmixp_dir)/pmixp_state.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_state.obj -MD -MP -MF $(DEPDIR)/pmixp_state.Tpo -c -o pmixp_state.obj `if test -f '$(pmixp_dir)/pmixp_state.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_state.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_state.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_state.Tpo $(DEPDIR)/pmixp_state.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_state.c' object='pmixp_state.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_state.obj `if test -f '$(pmixp_dir)/pmixp_state.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_state.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_state.c'; fi`
+
+pmixp_io.o: $(pmixp_dir)/pmixp_io.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_io.o -MD -MP -MF $(DEPDIR)/pmixp_io.Tpo -c -o pmixp_io.o `test -f '$(pmixp_dir)/pmixp_io.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_io.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_io.Tpo $(DEPDIR)/pmixp_io.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_io.c' object='pmixp_io.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_io.o `test -f '$(pmixp_dir)/pmixp_io.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_io.c
+
+pmixp_io.obj: $(pmixp_dir)/pmixp_io.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_io.obj -MD -MP -MF $(DEPDIR)/pmixp_io.Tpo -c -o pmixp_io.obj `if test -f '$(pmixp_dir)/pmixp_io.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_io.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_io.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_io.Tpo $(DEPDIR)/pmixp_io.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_io.c' object='pmixp_io.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_io.obj `if test -f '$(pmixp_dir)/pmixp_io.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_io.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_io.c'; fi`
+
+pmixp_utils.o: $(pmixp_dir)/pmixp_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_utils.o -MD -MP -MF $(DEPDIR)/pmixp_utils.Tpo -c -o pmixp_utils.o `test -f '$(pmixp_dir)/pmixp_utils.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_utils.Tpo $(DEPDIR)/pmixp_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_utils.c' object='pmixp_utils.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_utils.o `test -f '$(pmixp_dir)/pmixp_utils.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_utils.c
+
+pmixp_utils.obj: $(pmixp_dir)/pmixp_utils.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_utils.obj -MD -MP -MF $(DEPDIR)/pmixp_utils.Tpo -c -o pmixp_utils.obj `if test -f '$(pmixp_dir)/pmixp_utils.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_utils.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_utils.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_utils.Tpo $(DEPDIR)/pmixp_utils.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_utils.c' object='pmixp_utils.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_utils.obj `if test -f '$(pmixp_dir)/pmixp_utils.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_utils.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_utils.c'; fi`
+
+pmixp_dmdx.o: $(pmixp_dir)/pmixp_dmdx.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dmdx.o -MD -MP -MF $(DEPDIR)/pmixp_dmdx.Tpo -c -o pmixp_dmdx.o `test -f '$(pmixp_dir)/pmixp_dmdx.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dmdx.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dmdx.Tpo $(DEPDIR)/pmixp_dmdx.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dmdx.c' object='pmixp_dmdx.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dmdx.o `test -f '$(pmixp_dir)/pmixp_dmdx.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dmdx.c
+
+pmixp_dmdx.obj: $(pmixp_dir)/pmixp_dmdx.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dmdx.obj -MD -MP -MF $(DEPDIR)/pmixp_dmdx.Tpo -c -o pmixp_dmdx.obj `if test -f '$(pmixp_dir)/pmixp_dmdx.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dmdx.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dmdx.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dmdx.Tpo $(DEPDIR)/pmixp_dmdx.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dmdx.c' object='pmixp_dmdx.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dmdx.obj `if test -f '$(pmixp_dir)/pmixp_dmdx.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dmdx.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dmdx.c'; fi`
+
+pmixp_conn.o: $(pmixp_dir)/pmixp_conn.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_conn.o -MD -MP -MF $(DEPDIR)/pmixp_conn.Tpo -c -o pmixp_conn.o `test -f '$(pmixp_dir)/pmixp_conn.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_conn.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_conn.Tpo $(DEPDIR)/pmixp_conn.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_conn.c' object='pmixp_conn.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_conn.o `test -f '$(pmixp_dir)/pmixp_conn.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_conn.c
+
+pmixp_conn.obj: $(pmixp_dir)/pmixp_conn.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_conn.obj -MD -MP -MF $(DEPDIR)/pmixp_conn.Tpo -c -o pmixp_conn.obj `if test -f '$(pmixp_dir)/pmixp_conn.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_conn.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_conn.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_conn.Tpo $(DEPDIR)/pmixp_conn.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_conn.c' object='pmixp_conn.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_conn.obj `if test -f '$(pmixp_dir)/pmixp_conn.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_conn.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_conn.c'; fi`
+
+pmixp_dconn.o: $(pmixp_dir)/pmixp_dconn.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn.o -MD -MP -MF $(DEPDIR)/pmixp_dconn.Tpo -c -o pmixp_dconn.o `test -f '$(pmixp_dir)/pmixp_dconn.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn.Tpo $(DEPDIR)/pmixp_dconn.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn.c' object='pmixp_dconn.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn.o `test -f '$(pmixp_dir)/pmixp_dconn.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn.c
+
+pmixp_dconn.obj: $(pmixp_dir)/pmixp_dconn.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn.obj -MD -MP -MF $(DEPDIR)/pmixp_dconn.Tpo -c -o pmixp_dconn.obj `if test -f '$(pmixp_dir)/pmixp_dconn.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn.Tpo $(DEPDIR)/pmixp_dconn.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn.c' object='pmixp_dconn.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn.obj `if test -f '$(pmixp_dir)/pmixp_dconn.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn.c'; fi`
+
+pmixp_dconn_tcp.o: $(pmixp_dir)/pmixp_dconn_tcp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn_tcp.o -MD -MP -MF $(DEPDIR)/pmixp_dconn_tcp.Tpo -c -o pmixp_dconn_tcp.o `test -f '$(pmixp_dir)/pmixp_dconn_tcp.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn_tcp.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn_tcp.Tpo $(DEPDIR)/pmixp_dconn_tcp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn_tcp.c' object='pmixp_dconn_tcp.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn_tcp.o `test -f '$(pmixp_dir)/pmixp_dconn_tcp.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn_tcp.c
+
+pmixp_dconn_tcp.obj: $(pmixp_dir)/pmixp_dconn_tcp.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn_tcp.obj -MD -MP -MF $(DEPDIR)/pmixp_dconn_tcp.Tpo -c -o pmixp_dconn_tcp.obj `if test -f '$(pmixp_dir)/pmixp_dconn_tcp.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn_tcp.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn_tcp.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn_tcp.Tpo $(DEPDIR)/pmixp_dconn_tcp.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn_tcp.c' object='pmixp_dconn_tcp.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn_tcp.obj `if test -f '$(pmixp_dir)/pmixp_dconn_tcp.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn_tcp.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn_tcp.c'; fi`
+
+pmixp_coll.o: $(pmixp_dir)/pmixp_coll.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll.o -MD -MP -MF $(DEPDIR)/pmixp_coll.Tpo -c -o pmixp_coll.o `test -f '$(pmixp_dir)/pmixp_coll.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll.Tpo $(DEPDIR)/pmixp_coll.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll.c' object='pmixp_coll.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll.o `test -f '$(pmixp_dir)/pmixp_coll.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll.c
+
+pmixp_coll.obj: $(pmixp_dir)/pmixp_coll.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll.obj -MD -MP -MF $(DEPDIR)/pmixp_coll.Tpo -c -o pmixp_coll.obj `if test -f '$(pmixp_dir)/pmixp_coll.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll.Tpo $(DEPDIR)/pmixp_coll.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll.c' object='pmixp_coll.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll.obj `if test -f '$(pmixp_dir)/pmixp_coll.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll.c'; fi`
+
+pmixp_coll_tree.o: $(pmixp_dir)/pmixp_coll_tree.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll_tree.o -MD -MP -MF $(DEPDIR)/pmixp_coll_tree.Tpo -c -o pmixp_coll_tree.o `test -f '$(pmixp_dir)/pmixp_coll_tree.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll_tree.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll_tree.Tpo $(DEPDIR)/pmixp_coll_tree.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll_tree.c' object='pmixp_coll_tree.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll_tree.o `test -f '$(pmixp_dir)/pmixp_coll_tree.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll_tree.c
+
+pmixp_coll_tree.obj: $(pmixp_dir)/pmixp_coll_tree.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll_tree.obj -MD -MP -MF $(DEPDIR)/pmixp_coll_tree.Tpo -c -o pmixp_coll_tree.obj `if test -f '$(pmixp_dir)/pmixp_coll_tree.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll_tree.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll_tree.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll_tree.Tpo $(DEPDIR)/pmixp_coll_tree.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll_tree.c' object='pmixp_coll_tree.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll_tree.obj `if test -f '$(pmixp_dir)/pmixp_coll_tree.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll_tree.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll_tree.c'; fi`
+
+pmixp_coll_ring.o: $(pmixp_dir)/pmixp_coll_ring.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll_ring.o -MD -MP -MF $(DEPDIR)/pmixp_coll_ring.Tpo -c -o pmixp_coll_ring.o `test -f '$(pmixp_dir)/pmixp_coll_ring.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll_ring.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll_ring.Tpo $(DEPDIR)/pmixp_coll_ring.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll_ring.c' object='pmixp_coll_ring.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll_ring.o `test -f '$(pmixp_dir)/pmixp_coll_ring.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_coll_ring.c
+
+pmixp_coll_ring.obj: $(pmixp_dir)/pmixp_coll_ring.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_coll_ring.obj -MD -MP -MF $(DEPDIR)/pmixp_coll_ring.Tpo -c -o pmixp_coll_ring.obj `if test -f '$(pmixp_dir)/pmixp_coll_ring.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll_ring.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll_ring.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_coll_ring.Tpo $(DEPDIR)/pmixp_coll_ring.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_coll_ring.c' object='pmixp_coll_ring.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_coll_ring.obj `if test -f '$(pmixp_dir)/pmixp_coll_ring.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_coll_ring.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_coll_ring.c'; fi`
+
+pmixp_dconn_ucx.o: $(pmixp_dir)/pmixp_dconn_ucx.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn_ucx.o -MD -MP -MF $(DEPDIR)/pmixp_dconn_ucx.Tpo -c -o pmixp_dconn_ucx.o `test -f '$(pmixp_dir)/pmixp_dconn_ucx.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn_ucx.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn_ucx.Tpo $(DEPDIR)/pmixp_dconn_ucx.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn_ucx.c' object='pmixp_dconn_ucx.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn_ucx.o `test -f '$(pmixp_dir)/pmixp_dconn_ucx.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_dconn_ucx.c
+
+pmixp_dconn_ucx.obj: $(pmixp_dir)/pmixp_dconn_ucx.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_dconn_ucx.obj -MD -MP -MF $(DEPDIR)/pmixp_dconn_ucx.Tpo -c -o pmixp_dconn_ucx.obj `if test -f '$(pmixp_dir)/pmixp_dconn_ucx.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn_ucx.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn_ucx.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_dconn_ucx.Tpo $(DEPDIR)/pmixp_dconn_ucx.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_dconn_ucx.c' object='pmixp_dconn_ucx.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_dconn_ucx.obj `if test -f '$(pmixp_dir)/pmixp_dconn_ucx.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_dconn_ucx.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_dconn_ucx.c'; fi`
+
+pmixp_client_v2.o: $(pmixp_dir)/pmixp_client_v2.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_client_v2.o -MD -MP -MF $(DEPDIR)/pmixp_client_v2.Tpo -c -o pmixp_client_v2.o `test -f '$(pmixp_dir)/pmixp_client_v2.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_client_v2.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_client_v2.Tpo $(DEPDIR)/pmixp_client_v2.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_client_v2.c' object='pmixp_client_v2.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_client_v2.o `test -f '$(pmixp_dir)/pmixp_client_v2.c' || echo '$(srcdir)/'`$(pmixp_dir)/pmixp_client_v2.c
+
+pmixp_client_v2.obj: $(pmixp_dir)/pmixp_client_v2.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT pmixp_client_v2.obj -MD -MP -MF $(DEPDIR)/pmixp_client_v2.Tpo -c -o pmixp_client_v2.obj `if test -f '$(pmixp_dir)/pmixp_client_v2.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_client_v2.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_client_v2.c'; fi`
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/pmixp_client_v2.Tpo $(DEPDIR)/pmixp_client_v2.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(pmixp_dir)/pmixp_client_v2.c' object='pmixp_client_v2.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o pmixp_client_v2.obj `if test -f '$(pmixp_dir)/pmixp_client_v2.c'; then $(CYGPATH_W) '$(pmixp_dir)/pmixp_client_v2.c'; else $(CYGPATH_W) '$(srcdir)/$(pmixp_dir)/pmixp_client_v2.c'; fi`
 
 mostlyclean-libtool:
 	-rm -f *.lo

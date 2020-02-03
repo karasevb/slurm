@@ -47,6 +47,7 @@
 #include "pmixp_info.h"
 #include "pmixp_dconn_ucx.h"
 #include "pmixp_client.h"
+#include "pmixp_utils.h"
 
 /*
  * These variables are required by the generic plugin interface.  If they
@@ -145,7 +146,7 @@ extern int fini(void)
 	return SLURM_SUCCESS;
 }
 
-
+task_env_t *pmixp_tast_env_tbl;
 
 extern int p_mpi_hook_slurmstepd_prefork(
 	const stepd_step_rec_t *job, char ***env)
@@ -165,9 +166,8 @@ extern int p_mpi_hook_slurmstepd_prefork(
 	volatile int delay = 0;
 	while(delay) sleep(1);
 
-	//pmix_jobinfo_t job_info;
-	//_serialize_pmix_info(&_pmixp_job_info, &job_info_buf);
-	//_deserialize_pmix_info(job_info_buf, &	job_info);
+	_pmixp_job_info.log_fd = dup(fileno(log_fp()));
+	_pmixp_job_info.log_level = get_log_level();
 
 	pid_t pid;
 	int to_pmixpd[2] = {-1, -1};
@@ -185,44 +185,64 @@ extern int p_mpi_hook_slurmstepd_prefork(
 		Buf job_info_buf;
 		uint32_t len;
 
+		/*
 		if (close(to_pmixpd[0]) < 0)
 			error("Unable to close read to_pmixpd in parent: %m");
 		if (close(to_stepd[1]) < 0)
 			error("Unable to close write to_stepd in parent: %m");
+		*/
 
+		/* send job info */
 		len = pmixp_info_serialize(&_pmixp_job_info, &job_info_buf);
 		safe_write(to_pmixpd[1], &len, sizeof(len));
 		safe_write(to_pmixpd[1], get_buf_data(job_info_buf), len);
+		free_buf(job_info_buf);
+
+		/* recv env for procs */
+		Buf env_buf;
+		safe_read(to_stepd[0], &len, sizeof(len));
+		env_buf = init_buf(len);
+		safe_read(to_stepd[0], get_buf_data(env_buf), len);
+		pmixp_tast_env_deserialize(&pmixp_tast_env_tbl, env_buf);
+		free_buf(env_buf);
+
 		/* Reap child */
-		if (waitpid(pid, NULL, 0) < 0)
+		/*if (waitpid(pid, NULL, 0) < 0)
 			error("Unable to reap slurmd child process");
-		if (close(to_stepd[1]) < 0)
+		*/
+		/*if (close(to_stepd[1]) < 0)
 			error("close write to_stepd in parent: %m");
 		if (close(to_pmixpd[0]) < 0)
 			error("close read to_slurmd in parent: %m");
+		*/
 	} else {
 		char *const argv[2] = { "/sandbox/slurm/sbin/pmixpd", NULL};
+		char *path = "/sandbox/slurm/sbin/pmixpd";
 
+		/*
 		if (close(to_pmixpd[1]) < 0)
 			error("close write to_pmixpd in grandchild: %m");
 		if (close(to_stepd[0]) < 0)
 			error("close read to_stepd in parent: %m");
+		*/
 
 		(void) close(STDIN_FILENO); /* ignore return */
 		if (dup2(to_pmixpd[0], STDIN_FILENO) == -1) {
 			error("dup2 over STDIN_FILENO: %m");
 			exit(1);
 		}
-		fd_set_close_on_exec(to_pmixpd[0]);
+		//fd_set_close_on_exec(to_pmixpd[0]);
 		(void) close(STDOUT_FILENO); /* ignore return */
 		if (dup2(to_stepd[1], STDOUT_FILENO) == -1) {
 			error("dup2 over STDOUT_FILENO: %m");
 			exit(1);
 		}
-		fd_set_close_on_exec(to_stepd[1]);
-		execvp(argv[0], argv);
+		//fd_set_close_on_exec(to_stepd[1]);
+		//fd_set_noclose_on_exec(_pmixp_job_info.log_fd);
+		//execvp(argv[0], argv);
+		execve(path, argv, job->env);
 	}
-
+#if 0
 	if (SLURM_SUCCESS != (ret = pmixp_stepd_init(job, env))) {
 		PMIXP_ERROR("pmixp_stepd_init() failed");
 		goto err_ext;
@@ -231,6 +251,7 @@ extern int p_mpi_hook_slurmstepd_prefork(
 		PMIXP_ERROR("pmixp_agent_start() failed");
 		goto err_ext;
 	}
+#endif
 	return SLURM_SUCCESS;
 
 rwfail: // TODO
@@ -245,13 +266,29 @@ extern int p_mpi_hook_slurmstepd_task(
 {
 	char **tmp_env = NULL;
 	pmixp_debug_hang(0);
+	uint32_t i;
+	int env_count = 0;
 
-	PMIXP_DEBUG("Patch environment for task %d", job->gtaskid);
+	//PMIXP_DEBUG("Patch environment for task %d", job->gtaskid);
+	//pmixp_lib_setup_fork(job->gtaskid, pmixp_info_namespace(), &tmp_env);
 
-	pmixp_lib_setup_fork(job->gtaskid, pmixp_info_namespace(), &tmp_env);
+	PMIXP_DEBUG("getpid %d", getpid());
+
+	volatile int delay = 0;
+	while(delay) sleep(1);
+
+	for (i = 0; i < pmixp_info_tasks_loc(); i++) {
+		if (pmixp_tast_env_tbl[i].taskid == job->gtaskid) {
+			tmp_env = pmixp_tast_env_tbl[i].env;
+			env_count = pmixp_tast_env_tbl[i].cnt;
+			PMIXP_DEBUG("Found environment for task %d", job->gtaskid);
+			break;
+		}
+	}
+
 	if (NULL != tmp_env) {
 		int i;
-		for (i = 0; NULL != tmp_env[i]; i++) {
+		for (i = 0; i < env_count /* NULL != tmp_env[i]*/; i++) {
 			char *value = strchr(tmp_env[i], '=');
 			if (NULL != value) {
 				*value = '\0';
@@ -260,10 +297,10 @@ extern int p_mpi_hook_slurmstepd_task(
 						    (const char *)tmp_env[i],
 						    value);
 			}
-			free(tmp_env[i]);
+			//free(tmp_env[i]);
 		}
-		free(tmp_env);
-		tmp_env = NULL;
+		//free(tmp_env);
+		//tmp_env = NULL;
 	}
 	return SLURM_SUCCESS;
 }

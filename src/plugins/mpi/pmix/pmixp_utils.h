@@ -454,4 +454,49 @@ static inline pmixp_list_elem_t *pmixp_rlist_rem(
 	return ret;
 }
 
+typedef struct {
+	uint32_t taskid;
+	char **env;
+	uint32_t cnt;
+} task_env_t;
+
+static inline uint32_t pmixp_task_env_serialize(uint32_t ntask, task_env_t *env,
+						Buf *buf)
+{
+	uint32_t i, n;
+	Buf buffer = init_buf(0);
+	uint32_t size = 0;
+
+	pack32((uint32_t)ntask, buffer);
+	for (i = 0; i < ntask; i++) {
+		pack32(env[i].taskid, buffer);
+		pack32(env[i].cnt, buffer);
+		for (n = 0; n < env[i].cnt; n++) {
+			packstr(env[i].env[n], buffer);
+		}
+	}
+	*buf = buffer;
+	size = get_buf_offset(buffer);
+	return size;
+}
+
+static inline void pmixp_tast_env_deserialize(task_env_t **task_env, Buf buffer)
+{
+	uint32_t ntask, i, n;
+	task_env_t *tenv = NULL;
+	uint32_t len;
+
+	unpack32(&ntask, buffer);
+	tenv = xmalloc(sizeof(task_env_t) * (ntask + 1));
+	for (i = 0; i < ntask; i++) {
+		unpack32(&(tenv[i].taskid), buffer);
+		unpack32(&(tenv[i].cnt), buffer);
+		tenv[i].env = xmalloc(sizeof(char*) * tenv[i].cnt);
+		for (n = 0; n < tenv[i].cnt; n++) {
+			unpackstr_xmalloc(&(tenv[i].env[n]), &len, buffer);
+		}
+	}
+	*task_env = tenv;
+}
+
 #endif /* PMIXP_UTILS_H*/

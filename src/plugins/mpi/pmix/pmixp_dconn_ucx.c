@@ -206,7 +206,7 @@ int pmixp_dconn_ucx_prepare(pmixp_dconn_handlers_t *handlers,
 	/* By default UCX is not loaded until we explicitly
 	 * asked for that
 	 */
-	_load_ucx_lib();
+    //_load_ucx_lib();
 
 	slurm_mutex_init(&_ucx_worker_lock);
 
