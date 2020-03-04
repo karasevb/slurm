@@ -43,13 +43,17 @@
 
 #define MAX_MSG_SIZE 1024
 
-#define PMIXP_DEBUG_GET_TS(ts) {                                \
+/* Use the limit of 100M for the buffer */
+#define PMIXP_DELAYED_PROF_MAX (100*1024*1024)
+#define PMIXP_PROFILE_DELAY() (pmixp_info_prof_delayed())
+
+#define PMIXP_DEBUG_GET_TS(ts) {				\
 	struct timeval tv;                                      \
 	gettimeofday(&tv, NULL);                                \
 	ts = tv.tv_sec + 1E-6 * tv.tv_usec;                     \
 }
 
-#define PMIXP_DEBUG_TS(ts, format, args...) {                   \
+#define PMIXP_DEBUG_LEVEL_TS(level, ts, format, args...) {	\
 	char file[] = __FILE__;                                 \
 	char *file_base = strrchr(file, '/');                   \
 	if (file_base == NULL) {                                \
@@ -57,15 +61,30 @@
 	} else {                                                \
 		file_base++;                                    \
 	}                                                       \
-	debug("[%s:%d] [%.6lf] [%s:%d:%s] mpi/pmix:  " format,  \
+	level("[%s:%d] [%.6lf] [%s:%d:%s] mpi/pmix:  " format,  \
 	      pmixp_info_hostname(), pmixp_info_nodeid(), ts,   \
 	      file_base, __LINE__, __func__, ## args);          \
 }
 
-#define PMIXP_DEBUG(format, args...) {                          \
+#ifdef PMIXP_PROFILE_DELAY
+#define PMIXP_DEBUG_TS(ts, format, args...) {			\
+	if (PMIXP_PROFILE_DELAY() &&				\
+		(get_log_level() < LOG_LEVEL_DEBUG)) {		\
+		PMIXP_DEBUG_LEVEL_TS(error, ts, format,## args);\
+	} else {						\
+		PMIXP_DEBUG_LEVEL_TS(debug, ts, format,## args);\
+	}							\
+}
+#else
+#define PMIXP_DEBUG_TS(ts, format, args...) {			\
+	PMIXP_DEBUG_LEVEL_TS(debug, ts, format, ## args);	\
+}
+#endif
+
+#define PMIXP_DEBUG(format, args...) {				\
 	double ts;                                              \
 	PMIXP_DEBUG_GET_TS(ts);                                 \
-	PMIXP_DEBUG_TS(ts, format, ## args);                    \
+	PMIXP_DEBUG_LEVEL_TS(debug, ts, format, ## args);	\
 }
 
 #define PMIXP_DEBUG_BASE(format, args...) {                     \
@@ -160,10 +179,6 @@ typedef struct {
 void pmixp_profile_in(pmixp_profile_t *prof, char *buf, size_t size);
 void pmixp_profile_init(int max_threads, size_t thread_buf_size);
 void pmixp_profile_fini();
-
-/* Use the limit of 100M for the buffer */
-#define PMIXP_DELAYED_PROF_MAX (100*1024*1024)
-#define PMIXP_PROFILE_DELAY() (pmixp_info_prof_delayed())
 
 #define PMIXP_PROFILE_DEFINE(prefix, var, ctx, outfunc)         \
 prefix pmixp_profile_t var = { .priv = ctx, .output = outfunc };
