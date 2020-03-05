@@ -44,6 +44,61 @@
 #include "pmixp_server.h"
 #include "pmixp_client.h"
 
+typedef struct {
+	void *coll;
+	char *operation;
+	size_t msgsize;
+	uint32_t collseq;
+	uint32_t nodeid;
+	pmixp_coll_tree_state_t state;
+} pmixp_tree_profile_t;
+
+static void _tree_prof_output(double ts, pmixp_tree_profile_t *prof)
+{
+	PMIXP_DEBUG_TS(ts,
+		       "TREE: coll=%p; [%s]; nodeid=%u; collseq=%u; [%s]; size=%lu;",
+		       prof->coll, prof->operation,
+		       prof->nodeid, prof->collseq,
+		       pmixp_coll_tree_state2str(prof->state),
+		       prof->msgsize);
+}
+
+#define PMIXP_TREE_PROF_SETUP_REC(prof_var,				\
+				  _coll, op, _nodeid, _collseq,		\
+				  _state, _msgsize )			\
+pmixp_tree_profile_t prof_var = {					\
+	.coll = _coll,							\
+	.operation = op,						\
+	.nodeid = _nodeid,						\
+	.collseq = _collseq,						\
+	.state = _state,						\
+	.msgsize = _msgsize						\
+}
+
+static void _tree_prof_deserialize_out(void *priv, double ts,
+				       size_t size, char data[])
+{
+	pmixp_tree_profile_t prof;
+	xassert(sizeof(prof) == size);
+	memcpy(&prof, data, size);
+	_tree_prof_output(ts, &prof);
+}
+PMIXP_PROFILE_DEFINE(static, _ring_prof, NULL, _tree_prof_deserialize_out)
+
+#define PMIXP_TREE_PROFILE(coll, op, nodeid, collseq,			\
+			   state, msgsize) {				\
+	PMIXP_TREE_PROF_SETUP_REC(prof,					\
+				  coll, op, nodeid, collseq,		\
+				  state, msgsize);			\
+	if(PMIXP_PROFILE_DELAY()) {					\
+		PMIXP_PROFILE(&_ring_prof, (void*)&prof, sizeof(prof));	\
+	} else {							\
+		double ts;						\
+		PMIXP_DEBUG_GET_TS(ts);					\
+		_tree_prof_output(ts, &prof);				\
+	}								\
+}
+
 static void _progress_coll_tree(pmixp_coll_t *coll);
 static void _reset_coll(pmixp_coll_t *coll);
 
@@ -901,9 +956,8 @@ int pmixp_coll_tree_local(pmixp_coll_t *coll, char *data, size_t size,
 	tree = &coll->state.tree;
 
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: contrib/loc: seqnum=%u, state=%s, size=%zu",
-		    coll, coll->seq, pmixp_coll_tree_state2str(tree->state),
-		    size);
+	PMIXP_TREE_PROFILE(coll, "contrib/loc", pmixp_info_nodeid(), coll->seq,
+			   tree->state, size);
 #endif
 
 	switch (tree->state) {
@@ -1032,10 +1086,8 @@ int pmixp_coll_tree_child(pmixp_coll_t *coll, uint32_t peerid,
 	}
 
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: contrib/rem from nodeid=%u, childid=%d, state=%s, size=%u",
-		    coll, peerid, chld_id,
-		    pmixp_coll_tree_state2str(tree->state),
-		    remaining_buf(buf));
+	PMIXP_TREE_PROFILE(coll, "contrib/rem", peerid, coll->seq,
+			   tree->state, remaining_buf(buf));
 #endif
 
 	switch (tree->state) {
@@ -1177,9 +1229,8 @@ int pmixp_coll_tree_parent(pmixp_coll_t *coll, uint32_t peerid,
 	}
 
 #ifdef PMIXP_COLL_DEBUG
-	PMIXP_DEBUG("%p: contrib/rem nodeid=%u: state=%s, size=%u",
-		    coll, peerid, pmixp_coll_tree_state2str(tree->state),
-		    remaining_buf(buf));
+	PMIXP_TREE_PROFILE(coll, "contrib/rem", peerid, coll->seq,
+			   tree->state, remaining_buf(buf));
 #endif
 
 	switch (tree->state) {
