@@ -354,6 +354,14 @@ static void _set_topology(List lresp)
 	PMIXP_KVP_CREATE(kvp, PMIX_LOCAL_TOPO, p, PMIX_STRING);
 	list_append(lresp, kvp);
 
+#if HWLOC_API_VERSION < 0x00020000
+	PMIXP_KVP_CREATE(kvp, PMIX_HWLOC_XML_V1, p, PMIX_STRING);
+	list_append(lresp, kvp);
+#else
+	PMIXP_KVP_CREATE(kvp, PMIX_HWLOC_XML_V2, p, PMIX_STRING);
+	list_append(lresp, kvp);
+#endif
+
 	/* successful exit - fallthru */
 err_release_topo:
 	hwloc_topology_destroy(topology);
