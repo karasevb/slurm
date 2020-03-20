@@ -181,7 +181,8 @@ AC_DEFUN([X_AC_PMIX],
 
   AM_CONDITIONAL(HAVE_PMIX, [test $_x_ac_pmix_v1_found = "1"] ||
                 [test $_x_ac_pmix_v2_found = "1"] ||
-                [test $_x_ac_pmix_v3_found = "1"] )
+                [test $_x_ac_pmix_v3_found = "1"] ||
+                [test $_x_ac_pmix_v4_found = "1"])
   AM_CONDITIONAL(HAVE_PMIX_V1, [test $_x_ac_pmix_v1_found = "1"])
   AM_CONDITIONAL(HAVE_PMIX_V2, [test $_x_ac_pmix_v2_found = "1"])
   AM_CONDITIONAL(HAVE_PMIX_V3, [test $_x_ac_pmix_v3_found = "1"])
