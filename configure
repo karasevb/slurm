@@ -21933,7 +21933,8 @@ $as_echo "$as_me: WARNING: unable to locate pmix installation" >&2;}
 
    if test $_x_ac_pmix_v1_found = "1" ||
                 test $_x_ac_pmix_v2_found = "1" ||
-                test $_x_ac_pmix_v3_found = "1" ; then
+                test $_x_ac_pmix_v3_found = "1" ||
+                test $_x_ac_pmix_v4_found = "1"; then
   HAVE_PMIX_TRUE=
   HAVE_PMIX_FALSE='#'
 else
