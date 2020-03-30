@@ -47,7 +47,7 @@ AC_DEFUN([X_AC_UCX],
               LDFLAGS="-L$d/$bit $LDFLAGS"
             fi
             _x_ac_ucx_libs_save="$LIBS"
-            LIBS="-lucp $LIBS"
+            LIBS="-lucp -luct -lucs -lucm $LIBS"
 
             AC_CHECK_LIB([ucp],[ucp_cleanup])
 
