@@ -41,7 +41,7 @@ AC_DEFUN([X_AC_UCX],
             _x_ac_ucx_cppflags_save="$CPPFLAGS"
             CPPFLAGS="-I$d/include $CPPFLAGS"
             _x_ac_ucx_libs_save="$LIBS"
-            LIBS="-L$d/$bit -lucp $LIBS"
+            LIBS="-L$d/$bit -lucp -luct -lucs -lucm $LIBS"
 
             AC_CHECK_LIB([ucp],[ucp_cleanup])
 
