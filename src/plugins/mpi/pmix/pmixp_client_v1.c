@@ -85,12 +85,9 @@ static pmix_status_t _abort_fn(const pmix_proc_t *proc, void *server_object,
 			      pmix_proc_t procs[], size_t nprocs,
 			      pmix_op_cbfunc_t cbfunc, void *cbdata)
 {
-	/* Just kill this stepid for now. Think what we can do for FT here? */
 	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
-	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
-
-	if (NULL != cbfunc) {
-		cbfunc(PMIX_SUCCESS, cbdata);
+	if (SLURM_SUCCESS != pmixp_lib_abort(status, cbfunc, cbdata)) {
+		return PMIX_ERROR;
 	}
 	return PMIX_SUCCESS;
 }
