@@ -76,6 +76,8 @@
 #define PMIXP_CPUS_PER_NODE_ENV "SLURM_JOB_CPUS_PER_NODE"
 #define PMIXP_CPUS_PER_TASK "SLURM_CPUS_PER_TASK"
 #define PMIXP_SLURM_MAPPING_ENV "SLURM_PMIX_MAPPING_SERV"
+#define PMIXP_SLURM_ABORT_AGENT_IP "PMIXP_SLURM_ABORT_AGENT_IP"
+#define PMIXP_SLURM_ABORT_AGENT_PORT "PMIXP_SLURM_ABORT_AGENT_PORT"
 
 /* ----------------------------------------------------------
  * This variables can be used to adjust the plugin's behavior

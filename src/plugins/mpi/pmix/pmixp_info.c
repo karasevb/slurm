@@ -296,6 +296,20 @@ static int _resources_set(char ***env)
 {
 	char *p = NULL;
 
+	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_IP);
+	if (NULL != p) {
+		_pmixp_job_info.srun_ip = xstrdup(p);
+	} else {
+		_pmixp_job_info.srun_ip = NULL;
+	}
+
+	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_PORT);
+	if (NULL != p) {
+		_pmixp_job_info.abort_agent_port = atoi(xstrdup(p));
+	} else {
+		_pmixp_job_info.abort_agent_port = -1;
+	}
+
 	/* Initialize all memory pointers that would be allocated to NULL
 	 * So in case of error exit we will know what to xfree
 	 */
