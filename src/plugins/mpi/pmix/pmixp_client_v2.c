@@ -88,12 +88,32 @@ static pmix_status_t _abort_fn(const pmix_proc_t *proc, void *server_object,
 {
 	/* Just kill this stepid for now. Think what we can do for FT here? */
 	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
+
+	uint32_t status_net = htonl((uint32_t)status);
+
+	slurm_addr_t abort_server;
+	abort_server.sin_family = AF_INET;
+	abort_server.sin_port = pmixp_info_abort_agent_port();
+	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
+
+	int client_sock;
+	if((client_sock = slurm_open_msg_conn(&abort_server)) < 0){
+		PMIXP_ERROR("Error create and conn client socket: %s", strerror(errno));
+		return SLURM_ERROR;
+	}
+
+	int len;
+	if ((len = slurm_write_stream(client_sock, &status_net, sizeof(status_net))) == -1)
+		return SLURM_ERROR;
+
+	if ((len = slurm_read_stream(client_sock, &status_net, sizeof(status_net))) == -1)
+		return SLURM_ERROR;
+
+	close(client_sock);
+
 	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
 
-	if (NULL != cbfunc) {
-		cbfunc(PMIX_SUCCESS, cbdata);
-	}
-	return PMIX_SUCCESS;
+	return status;
 }
 
 static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
