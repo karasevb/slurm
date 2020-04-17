@@ -2,8 +2,12 @@
  **  pmix_agent.c - PMIx agent thread
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Y. Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
+ *  Copyright (C) 2020      Siberian State University of Telecommunications
+ *                          and Information Sciences (SibSUTIS).
+ *                          All rights reserved.
+ *  Written by Boris Bochkarev <boris-bochkaryov@yandex.ru>.
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -54,9 +58,11 @@ static pthread_mutex_t agent_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t agent_running_cond = PTHREAD_COND_INITIALIZER;
 
 static eio_handle_t *_io_handle = NULL;
+static eio_handle_t *_abort_handle = NULL;
 
 static pthread_t _agent_tid = 0;
 static pthread_t _timer_tid = 0;
+static pthread_t _abort_tid = 0;
 
 struct timer_data_t {
 	int work_in, work_out;
@@ -67,6 +73,12 @@ static struct timer_data_t timer_data;
 static bool _conn_readable(eio_obj_t *obj);
 static int _server_conn_read(eio_obj_t *obj, List objs);
 static int _timer_conn_read(eio_obj_t *obj, List objs);
+static int _abort_conn_read(eio_obj_t *obj, List objs);
+static struct io_operations abort_ops = {
+	.readable = &_conn_readable,
+	.handle_read = &_abort_conn_read
+};
+
 static struct io_operations srv_ops = {
 	.readable = &_conn_readable,
 	.handle_read = &_server_conn_read
@@ -140,6 +152,44 @@ static int _server_conn_read(eio_obj_t *obj, List objs)
 		}
 	}
 	return 0;
+}
+
+static int _abort_conn_read(eio_obj_t *obj, List objs)
+{
+	struct sockaddr_in abort_client;
+	int abort_client_sock;
+	uint32_t ret_status;
+	int shutdown = 0;
+
+	while (1) {
+		if (!pmixp_fd_read_ready(obj->fd, &shutdown)) {
+			if (shutdown) {
+				obj->shutdown = true;
+				if (shutdown < 0)
+					PMIXP_ERROR_NO(shutdown, "sd=%d failure", obj->fd);
+			}
+			return SLURM_SUCCESS;
+		}
+
+		if ((abort_client_sock = slurm_accept_msg_conn(obj->fd, &abort_client)) < 0) {
+			PMIXP_ERROR("Error accept %s", strerror(errno));
+			return SLURM_ERROR;
+		}
+		PMIXP_DEBUG("New abort client: %s:%d", inet_ntoa(abort_client.sin_addr), abort_client.sin_port);
+
+		int len;
+		if ((len = slurm_read_stream(abort_client_sock, (char*)&ret_status, sizeof(ret_status))) == -1)
+			return SLURM_ERROR;
+
+		if ((len = slurm_write_stream(abort_client_sock, (char*)&ret_status, sizeof(ret_status))) == -1)
+			return SLURM_ERROR;
+
+		if (SLURM_SUCCESS == pmixp_info_abort_status())
+			pmixp_info_set_abort_status((int)ntohl(ret_status));
+
+		close(abort_client_sock);
+	}
+	return SLURM_SUCCESS;
 }
 
 static int _timer_conn_read(eio_obj_t *obj, List objs)
@@ -289,6 +339,57 @@ static void *_pmix_timer_thread(void *unused)
 
 rwfail:
 	return NULL;
+}
+
+/*
+ * thread for codes from abort
+ */
+static void *_pmix_abort_thread(void *args)
+{
+	PMIXP_DEBUG("Start abort thread");
+	eio_handle_mainloop(_abort_handle);
+	PMIXP_DEBUG("Abort thread exit");
+	return NULL;
+}
+
+int pmixp_abort_agent_start(char ***env)
+{
+	int abort_server_socket = -1;
+	if ((abort_server_socket = slurm_init_msg_engine_port(0)) < 0) {
+		PMIXP_ERROR("Error slurm_open_stream %s", strerror(errno));
+		return SLURM_COMMUNICATIONS_CONNECTION_ERROR;
+	}
+
+	slurm_addr_t abort_server;
+	memset(&abort_server, 0, sizeof(slurm_addr_t));
+
+	slurm_get_stream_addr(abort_server_socket, &abort_server);
+	PMIXP_DEBUG("Abort server ip:port: %s:%d", inet_ntoa(abort_server.sin_addr), abort_server.sin_port);
+
+	char ip_buffer[INET_ADDRSTRLEN];
+	inet_ntop(AF_INET, &abort_server.sin_addr, ip_buffer, sizeof(ip_buffer)); // TODO: check error return
+
+	setenvf(env, PMIXP_SLURM_ABORT_AGENT_IP, "%s", ip_buffer);
+	setenvf(env, PMIXP_SLURM_ABORT_AGENT_PORT, "%d", abort_server.sin_port);
+
+	eio_obj_t *obj;
+	_abort_handle = eio_handle_create(0);
+	obj = eio_obj_create(abort_server_socket, &abort_ops, (void *)(-1));
+	eio_new_initial_obj(_abort_handle, obj);
+
+	slurm_thread_create(&_abort_tid, _pmix_abort_thread, NULL);
+
+	return SLURM_SUCCESS;
+}
+
+int pmixp_abort_agent_stop(void)
+{
+	if (_abort_tid) {
+		eio_signal_shutdown(_abort_handle);
+		pthread_join(_abort_tid, NULL);
+		_abort_tid = 0;
+	}
+	return pmixp_info_abort_status();
 }
 
 int pmixp_agent_start(void)

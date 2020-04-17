@@ -2,9 +2,13 @@
  **  pmix_client_v2.c - PMIx v2 client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
  *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
+ *  Copyright (C) 2020      Siberian State University of Telecommunications
+ *                          and Information Sciences (SibSUTIS).
+ *                          All rights reserved.
+ *  Written by Boris Bochkarev <boris-bochkaryov@yandex.ru>.
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -81,19 +85,27 @@ static pmix_status_t _client_finalized(const pmix_proc_t *proc,
 	return PMIX_SUCCESS;
 }
 
-static pmix_status_t _abort_fn(const pmix_proc_t *proc, void *server_object,
+static pmix_status_t _abort_fn(const pmix_proc_t *pmix_proc, void *server_object,
 			       int status, const char msg[],
-			       pmix_proc_t procs[], size_t nprocs,
+			       pmix_proc_t pmix_procs[], size_t nprocs,
 			       pmix_op_cbfunc_t cbfunc, void *cbdata)
 {
-	/* Just kill this stepid for now. Think what we can do for FT here? */
-	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
-	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
+	int rc, i;
+	pmixp_proc_t proc;
+	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
 
-	if (NULL != cbfunc) {
-		cbfunc(PMIX_SUCCESS, cbdata);
+	proc.rank = pmix_proc->rank;
+	strncpy(proc.nspace, pmix_proc->nspace, PMIXP_MAX_NSLEN);
+	for (i = 0; i < nprocs; i++) {
+		procs[i].rank = pmix_procs[i].rank;
+		strncpy(procs[i].nspace, pmix_procs[i].nspace, PMIXP_MAX_NSLEN);
 	}
-	return PMIX_SUCCESS;
+
+	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
+	rc = pmixp_lib_abort(&proc, server_object, status, msg, procs, nprocs,
+			cbfunc, cbdata);
+	xfree(procs);
+	return (SLURM_SUCCESS == rc) ? PMIX_SUCCESS : PMIX_ERROR;
 }
 
 static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,
