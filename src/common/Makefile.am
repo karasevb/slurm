@@ -134,7 +134,8 @@ libcommon_la_SOURCES = 			\
 	site_factor.c site_factor.h	\
 	cli_filter.c cli_filter.h	\
 	tres_bind.c tres_bind.h		\
-	tres_frequency.c tres_frequency.h
+	tres_frequency.c tres_frequency.h \
+	base64_encode.c base64_encode.h
 
 EXTRA_libcommon_la_SOURCES = 		\
 	uthash/LICENSE			\
