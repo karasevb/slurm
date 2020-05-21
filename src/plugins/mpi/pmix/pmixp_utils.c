@@ -2,7 +2,7 @@
  ** pmix_utils.c - Various PMIx utility functions
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -53,6 +53,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#include "src/common/slurm_xlator.h"
 #include "src/common/xassert.h"
 #include "src/common/xmalloc.h"
 

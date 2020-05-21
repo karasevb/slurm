@@ -86,8 +86,8 @@
 	xfree(kvp);		\
 }
 
-int pmixp_libpmix_init(void);
-int pmixp_libpmix_finalize(void);
+int pmixp_stepd_libpmix_init(void);
+int pmixp_stepd_libpmix_finalize(void);
 int pmixp_libpmix_job_set(void);
 void pmix_libpmix_task_set(int rank, char ***env);
 void pmix_client_new_conn(int fd);
@@ -108,5 +108,21 @@ int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 		    bool collect, char *data, size_t ndata,
 		    void *cbfunc, void *cbdata);
 extern int pmixp_lib_abort(int status, void *cbfunc, void *cbdata);
+
+void pmixp_build_node2task_map(uint32_t nnodes, uint32_t ntasks,
+			       uint16_t *task_cnts, uint32_t *task_map,
+			       uint32_t ***tids);
+void pmixp_release_node2task_map(uint32_t **tids);
+char *pmixp_client_get_proc_map(uint32_t nnodes, uint32_t ntasks,
+				uint16_t *task_cnts, uint32_t **tids);
+char *pmixp_stepd_get_proc_map(uint32_t nnodes,
+			       uint32_t ntasks, uint16_t *task_cnts,
+			       uint32_t *task_map);
+
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_libpmix_finalize(void);
+int pmixp_libpmix_local_setup(char ***env);
+int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
+				    char ***env);
 
 #endif /* PMIXP_CLIENT_H */
