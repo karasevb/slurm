@@ -2,7 +2,7 @@
  **  pmix_client_v2.c - PMIx v2 client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
  *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
@@ -48,6 +48,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <pmix.h>
 #include <pmix_server.h>
 
 static int _client_connected(const pmix_proc_t *proc, void *server_object,
@@ -226,17 +227,21 @@ static pmix_server_module_t slurm_pmix_cb = {
 	.job_control = _job_control
 };
 
-int pmixp_lib_init(void)
+int pmixp_lib_init(uint32_t jobuid, char *tmpdir)
 {
 	pmix_info_t *kvp = NULL;
 	pmix_status_t rc;
-	uint32_t jobuid = pmixp_info_jobuid();
+#ifdef PMIX_SERVER_SCHEDULER
+	bool flag = 1;
+#endif
 
 	PMIXP_KVP_ADD(kvp, PMIX_USERID, &jobuid, PMIX_UINT32);
-
 #ifdef PMIX_SERVER_TMPDIR
-	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR,
-		      pmixp_info_tmpdir_lib(), PMIX_STRING);
+	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR, tmpdir, PMIX_STRING);
+#endif
+#ifdef PMIX_SERVER_SCHEDULER
+	PMIXP_KVP_ADD(kvp, PMIX_SERVER_SCHEDULER,
+		      &flag, PMIX_BOOL);
 #endif
 
 	/* setup the server library */

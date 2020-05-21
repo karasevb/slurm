@@ -2,7 +2,7 @@
  **  pmix_client.h - PMIx client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015      Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -92,7 +92,7 @@ int pmixp_libpmix_job_set(void);
 void pmix_libpmix_task_set(int rank, char ***env);
 void pmix_client_new_conn(int fd);
 
-int pmixp_lib_init(void);
+int pmixp_lib_init(uint32_t jobuid, char *tmpdir);
 int pmixp_lib_finalize(void);
 int pmixp_lib_setup_fork(uint32_t rank, const char *nspace, char ***env);
 int pmixp_lib_dmodex_request(pmixp_proc_t *proc, void *dmdx_fn, void *caddy);
@@ -107,5 +107,13 @@ uint32_t pmixp_lib_get_version(void);
 int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 		    bool collect, char *data, size_t ndata,
 		    void *cbfunc, void *cbdata);
+
+#if (HAVE_PMIX_VER >= 4)
+int pmixp_srun_libpmix_init(void);
+int pmixp_srun_libpmix_finalize(void);
+int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
+				    char *mapping, char ***env);
+int pmixp_libpmix_setup_local_app(char ***env);
+#endif
 
 #endif /* PMIXP_CLIENT_H */

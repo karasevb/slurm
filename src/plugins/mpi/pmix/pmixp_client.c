@@ -2,7 +2,7 @@
  **  pmix_client.c - PMIx client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -48,6 +48,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <pmix.h>
 #include <pmix_server.h>
 
 #ifdef HAVE_HWLOC
@@ -119,6 +120,14 @@ typedef struct {
 	pmix_status_t rc;
 	volatile int active;
 } register_caddy_t;
+
+#if (HAVE_PMIX_VER >= 4)
+typedef struct {
+	pmix_status_t rc;
+	volatile int active;
+	char *base64_setup_str;
+} setup_app_caddy_t;
+#endif
 
 static void _release_cb(pmix_status_t status, void *cbdata)
 {
@@ -357,108 +366,25 @@ err_exit:
 	return;
 }
 
-/*
- * Estimate the size of a buffer capable of holding the proc map for this job.
- * PMIx proc map string format:
- *
- *    xx,yy,...,zz;ll,mm,...,nn;...;aa,bb,...,cc;
- *    - n0 ranks -;- n1 ranks -;...;- nX ranks -;
- *
- * To roughly estimate the size of the string we leverage the following
- * dependency: for any rank \in [0; nspace->ntasks - 1]
- *     num_digits_10(rank) <= num_digits_10(nspace->ntasks)
- *
- * So we can say that the cumulative number "digits_cnt" of all symbols
- * comprising all rank numbers in the namespace is:
- *     digits_size <= num_digits_10(nspace->ntasks) * nspace->ntasks
- * Every rank is followed either by a comma, a semicolon, or the terminating
- * '\0', thus each rank requires at most num_digits_10(nspace_ntasks) + 1.
- * So we need at most: (num_digits_10(nspace->ntasks) + 1) * nspace->ntasks.
- *
- * Considering a 1.000.000 core system with 64PPN.
- * The size of the intermediate buffer will be:
- * - num_digits_10(1.000.000) = 7
- * - (7 + 1) * 1.000.000 ~= 8MB
- */
-static size_t _proc_map_buffer_size(uint32_t ntasks)
-{
-	return (pmixp_count_digits_base10(ntasks) + 1) * ntasks;
-}
-
-/* Build a sequence of ranks sorted by nodes */
-static void _build_node2task_map(pmixp_namespace_t *nsptr, uint32_t *node2tasks)
-{
-	uint32_t *node_offs = xcalloc(nsptr->nnodes, sizeof(*node_offs));
-	uint32_t *node_tasks = xcalloc(nsptr->nnodes, sizeof(*node_tasks));
-
-	/* Build the offsets structure needed to fill the node-to-tasks map */
-	for (int i = 1; i < nsptr->nnodes; i++)
-		node_offs[i] = node_offs[i - 1] + nsptr->task_cnts[i - 1];
-
-	xassert(nsptr->ntasks == (node_offs[nsptr->nnodes - 1] +
-				  nsptr->task_cnts[nsptr->nnodes - 1]));
-
-	/* Fill the node-to-task map */
-	for (int i = 0; i < nsptr->ntasks; i++) {
-		int node = nsptr->task_map[i], offset;
-		xassert(node < nsptr->nnodes);
-		offset = node_offs[node] + node_tasks[node]++;
-		xassert(nsptr->task_cnts[node] >= node_tasks[node]);
-		node2tasks[offset] = i;
-	}
-
-	/* Cleanup service structures */
-	xfree(node_offs);
-	xfree(node_tasks);
-}
-
 static int _set_mapsinfo(List lresp)
 {
 	pmix_info_t *kvp;
-	char *regexp, *input, *map = NULL, *pos = NULL;
+	char *regexp;
 	pmixp_namespace_t *nsptr = pmixp_nspaces_local();
-	hostlist_t hl = nsptr->hl;
-	int rc, i, j;
-	int count = hostlist_count(hl);
-	uint32_t *node2tasks = NULL, *cur_task = NULL;
 
-	input = hostlist_deranged_string_malloc(hl);
-	rc = PMIx_generate_regex(input, &regexp);
-	free(input);
-	if (PMIX_SUCCESS != rc) {
+	if (NULL == (regexp = pmixp_info_get_node_map(nsptr->hl))) {
 		return SLURM_ERROR;
 	}
 	PMIXP_KVP_CREATE(kvp, PMIX_NODE_MAP, regexp, PMIX_STRING);
 	regexp = NULL;
 	list_append(lresp, kvp);
 
-	/* Preallocate the buffer to avoid constant xremalloc() calls. */
-	map = xmalloc(_proc_map_buffer_size(nsptr->ntasks));
-
-	/* Build a node-to-tasks map that can be traversed in O(n) steps */
-	node2tasks = xcalloc(nsptr->ntasks, sizeof(*node2tasks));
-	_build_node2task_map(nsptr, node2tasks);
-	cur_task = node2tasks;
-
-	for (i = 0; i < nsptr->nnodes; i++) {
-		char *sep = "";
-		/* For each node, provide IDs of the tasks residing on it */
-		for (j = 0; j < nsptr->task_cnts[i]; j++){
-			xstrfmtcatat(map, &pos, "%s%u", sep, *(cur_task++));
-			sep = ",";
-		}
-		if (i < (count - 1)) {
-			xstrfmtcatat(map, &pos, ";");
-		}
-	}
-	rc = PMIx_generate_ppn(map, &regexp);
-	xfree(map);
-	xfree(node2tasks);
-
-	if (PMIX_SUCCESS != rc) {
+	if (NULL == (regexp = pmixp_info_get_proc_map(nsptr->hl, nsptr->nnodes,
+						      nsptr->ntasks,
+						      nsptr->task_cnts,
+						      nsptr->task_map))) {
 		return SLURM_ERROR;
 	}
-
 	PMIXP_KVP_CREATE(kvp, PMIX_PROC_MAP, regexp, PMIX_STRING);
 	regexp = NULL;
 	list_append(lresp, kvp);
@@ -500,19 +426,21 @@ extern int pmixp_libpmix_init(void)
 	mode_t rights = (S_IRUSR | S_IWUSR | S_IXUSR) |
 			(S_IRGRP | S_IWGRP | S_IXGRP);
 
-	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_lib(), rights))) {
+	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_lib(), rights,
+				   pmixp_info_jobuid()))) {
 		PMIXP_ERROR_STD("Cannot create server lib tmpdir: \"%s\"",
 				pmixp_info_tmpdir_lib());
 		return errno;
 	}
 
-	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_cli(), rights))) {
+	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_cli(), rights,
+				   pmixp_info_jobuid()))) {
 		PMIXP_ERROR_STD("Cannot create client cli tmpdir: \"%s\"",
 				pmixp_info_tmpdir_cli());
 		return errno;
 	}
 
-	rc = pmixp_lib_init();
+	rc = pmixp_lib_init(pmixp_info_jobuid(), pmixp_info_tmpdir_lib());
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR_STD("PMIx_server_init failed with error %d\n", rc);
 		return SLURM_ERROR;
@@ -794,3 +722,304 @@ error:
 	modex_cbfunc(status, NULL, 0, cbdata, NULL, NULL);
 	return SLURM_ERROR;
 }
+
+#if (HAVE_PMIX_VER >= 4)
+static void pmixp_wait_active(volatile int *active)
+{
+	struct timespec ts;
+
+	while (1) {
+		ts.tv_sec = 0;
+		ts.tv_nsec = 10;
+
+		if (!(*active)) {
+			break;
+		}
+		nanosleep(&ts, NULL);
+	}
+}
+
+static void _setup_app_cb(pmix_status_t status,
+			  pmix_info_t info[], size_t ninfo,
+			  void *provided_cbdata,
+			  pmix_op_cbfunc_t cbfunc, void *cbdata)
+{
+	setup_app_caddy_t *caddy = (setup_app_caddy_t*)provided_cbdata;
+	pmix_data_buffer_t pbkt;
+	pmix_byte_object_t pbo;
+	size_t len;
+	int rc;
+
+	if (!ninfo) {
+		/* nothing to do */
+		goto fast_exit;
+	}
+
+	PMIX_DATA_BUFFER_CONSTRUCT(&pbkt);
+
+	rc = PMIx_Data_pack(NULL, &pbkt, &ninfo, 1, PMIX_SIZE);
+	if (rc != PMIX_SUCCESS) {
+		status = rc;
+		goto err_exit;
+	}
+	rc = PMIx_Data_pack(NULL, &pbkt, info, ninfo, PMIX_INFO);
+	if (rc != PMIX_SUCCESS) {
+		status = rc;
+		goto err_exit;
+	}
+
+	PMIX_DATA_BUFFER_UNLOAD(&pbkt, pbo.bytes, pbo.size);
+	caddy->base64_setup_str =
+			pmixp_base64_encode((char *)pbo.bytes, pbo.size, &len);
+
+err_exit:
+	PMIX_DATA_BUFFER_DESTRUCT(&pbkt);
+fast_exit:
+	caddy->active = 0;
+
+	if (NULL != cbfunc) {
+	    cbfunc(status, cbdata);
+	}
+	caddy->rc = status;
+}
+
+static void _setup_loc_cb(pmix_status_t status, void *cbdata)
+{
+	volatile int *active = (volatile int *)cbdata;
+	*active = 0;
+}
+
+int pmixp_libpmix_setup_local_app(char ***env)
+{
+	char *p = NULL;
+	char *base64_setup_str = NULL;
+	pmix_info_t *info;
+	int32_t ninfo, cnt;
+	size_t len;
+	pmix_data_buffer_t pbuf;
+	void *buf;
+	int rc, i;
+	volatile int active;
+	char *env_name = NULL;
+
+	i = 0;
+	xstrfmtcat(env_name, PMIXP_SERVER_SETUP_APP_FMT, i);
+	p = getenvp(*env, env_name);
+	if (!p) {
+		xfree(env_name);
+		return SLURM_SUCCESS;
+	}
+	do {
+		i++;
+		xstrcat(base64_setup_str, p);
+		unsetenvp(*env, env_name);
+		xfree(env_name);
+		xstrfmtcat(env_name, PMIXP_SERVER_SETUP_APP_FMT, i);
+		p = getenvp(*env, env_name);
+	} while (p);
+	xfree(env_name);
+
+	PMIX_DATA_BUFFER_CONSTRUCT(&pbuf);
+	buf = pmixp_base64_decode(base64_setup_str,
+				  strlen(base64_setup_str), &len);
+	xfree(base64_setup_str);
+	PMIX_DATA_BUFFER_LOAD(&pbuf, buf, len);
+
+	cnt = 1;
+	rc = PMIx_Data_unpack(NULL, &pbuf, &ninfo, &cnt, PMIX_SIZE);
+	if (rc != PMIX_SUCCESS) {
+		PMIXP_ERROR("ninfo unpack failed");
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+	PMIX_INFO_CREATE(info, ninfo);
+	rc = PMIx_Data_unpack(NULL, &pbuf, info, &ninfo, PMIX_INFO);
+	if (rc != PMIX_SUCCESS) {
+		PMIXP_ERROR("info unpack failed");
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+
+	active = 1;
+	rc = PMIx_server_setup_local_support(pmixp_info_namespace(),
+					     info, ninfo,
+					     _setup_loc_cb, (void*)&active);
+	if (rc == PMIX_OPERATION_SUCCEEDED) {
+		active = 0;
+	} else if (rc != PMIX_SUCCESS) {
+		PMIXP_ERROR("PMIx_server_setup_local_support() failed, rc = %d",
+			    rc);
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+	pmixp_wait_active(&active);
+
+	rc = SLURM_SUCCESS;
+err_exit:
+	return rc;
+}
+
+extern int pmixp_srun_libpmix_init(void)
+{
+	int rc;
+	mode_t rights = (S_IRUSR | S_IWUSR | S_IXUSR) |
+			(S_IRGRP | S_IWGRP | S_IXGRP);
+
+	if (0 != (rc = pmixp_mkdir(pmixp_srun_tmpdir_lib(),
+				   rights, getuid()))) {
+		PMIXP_ERROR_STD("Cannot create srun pmix lib tmpdir: \"%s\"",
+				pmixp_srun_tmpdir_lib());
+		return errno;
+	}
+
+	rc = pmixp_lib_init(getuid(), pmixp_srun_tmpdir_lib());
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR_STD("PMIx_server_init failed with error %d\n", rc);
+		return SLURM_ERROR;
+	}
+
+	return SLURM_SUCCESS;
+}
+int pmixp_srun_libpmix_finalize(void)
+{
+	int rc, rc1;
+
+	rc = pmixp_lib_finalize();
+
+	rc1 = pmixp_rmdir_recursively(pmixp_srun_tmpdir_lib());
+	if (0 != rc1) {
+		PMIXP_ERROR_STD("Failed to remove %s\n",
+				pmixp_srun_tmpdir_lib());
+		/* Not considering this as fatal error */
+	}
+
+	return rc;
+}
+
+int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
+				    char *mapping, char ***env)
+{
+	char nspace[PMIXP_MAX_NSLEN];
+	const uint32_t task_cnt = job->step_layout->task_cnt;
+	hostlist_t strp_hl;
+	char *node_map = NULL, *proc_map = NULL;
+	uint32_t *task_map, *task_cnts;
+	int rc, i;
+	pmix_info_t *info;
+	int ninfo = 0;
+	setup_app_caddy_t *setup_app_caddy = NULL;
+
+	PMIX_INFO_CREATE(info, 2);
+
+	pmixp_info_gen_nspace(job->jobid, job->stepid, nspace);
+	strp_hl = hostlist_create(job->step_layout->node_list);
+	if (strp_hl == NULL){
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+
+	/* generate PMIX_NODE_MAP */
+	node_map = pmixp_info_get_node_map(strp_hl);
+	if (NULL == node_map) {
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+
+	PMIX_INFO_LOAD(&info[ninfo], PMIX_NODE_MAP, node_map, PMIX_STRING);
+	ninfo++;
+	node_map = NULL;
+
+	/* generate PMIX_PROC_MAP */
+	task_map = unpack_process_mapping_flat(mapping,
+					       job->step_layout->node_cnt,
+					       job->step_layout->task_cnt,
+					       NULL);
+	if (task_map == NULL) {
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+	task_cnts = xmalloc(sizeof(uint32_t) * task_cnt);
+	for (i = 0; i < task_cnt; i++) {
+		task_cnts[i] = job->step_layout->tasks[i];
+	}
+	proc_map = pmixp_info_get_proc_map(strp_hl, job->step_layout->node_cnt,
+					   task_cnt, task_cnts, task_map);
+	xfree(task_cnts);
+	if (NULL == proc_map) {
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+	PMIX_INFO_LOAD(&info[ninfo], PMIX_PROC_MAP, proc_map, PMIX_STRING);
+	ninfo++;
+	proc_map = NULL;
+
+	/* invoke PMIx_server_setup_application */
+	setup_app_caddy = xmalloc(sizeof(setup_app_caddy_t));
+	setup_app_caddy->base64_setup_str = NULL;
+	setup_app_caddy->active = 1;
+
+	rc = PMIx_server_setup_application(nspace, info, ninfo,
+					   _setup_app_cb, setup_app_caddy);
+	if (PMIX_SUCCESS != rc) {
+		PMIXP_ERROR_STD("PMIx_server_setup_application failed with error: %d",
+				rc);
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+	pmixp_wait_active(&setup_app_caddy->active);
+
+	if (PMIX_SUCCESS != setup_app_caddy->rc) {
+		PMIXP_ERROR("PMIx_server_setup_application callback function failed with error: %d",
+			    setup_app_caddy->rc);
+		rc = SLURM_ERROR;
+		goto err_exit;
+	}
+
+	if (setup_app_caddy->base64_setup_str) {
+		int size = strlen(setup_app_caddy->base64_setup_str);
+		char *chunk_value = (char *)xmalloc(slurm_env_get_val_maxlen(NULL));
+		char *env_name = NULL;
+		int i;
+		int remain = size;
+		int chunk_size, offset = 0;
+
+		i = 0;
+		while (remain) {
+			xstrfmtcat(env_name, PMIXP_SERVER_SETUP_APP_FMT , i);
+			if (remain > slurm_env_get_val_maxlen(env_name)) {
+				chunk_size = slurm_env_get_val_maxlen(env_name);
+			} else {
+				chunk_size = remain;
+			}
+
+			memcpy(chunk_value, &setup_app_caddy->base64_setup_str[offset], chunk_size);
+			chunk_value[chunk_size] = '\0';
+			setenvf(env, env_name, "%s", chunk_value);
+			remain -= chunk_size;
+			offset += chunk_size;
+			xfree(env_name);
+			i++;
+		}
+		xfree(chunk_value);
+	}
+
+err_exit:
+	if (task_map != NULL) {
+		xfree(task_map);
+	}
+	if (node_map != NULL) {
+		free(node_map);
+	}
+	if (proc_map != NULL) {
+		free(proc_map);
+	}
+	if (setup_app_caddy) {
+		if (setup_app_caddy->base64_setup_str) {
+			xfree(setup_app_caddy->base64_setup_str);
+		}
+		xfree(setup_app_caddy);
+	}
+
+	return rc;
+}
+#endif

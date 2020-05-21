@@ -2,7 +2,7 @@
  ** pmix_utils.c - Various PMIx utility functions
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -606,7 +606,7 @@ exit:
 	return rc;
 }
 
-int pmixp_mkdir(char *path, mode_t rights)
+int pmixp_mkdir(char *path, mode_t rights, uid_t uid)
 {
 	/* NOTE: we need user who owns the job to access PMIx usock
 	 * file. According to 'man 7 unix':
@@ -634,7 +634,7 @@ int pmixp_mkdir(char *path, mode_t rights)
 		return errno;
 	}
 
-	if (chown(path, (uid_t) pmixp_info_jobuid(), (gid_t) -1) < 0) {
+	if (chown(path, uid, (gid_t) -1) < 0) {
 		error("%s: chown(%s): %m", __func__, path);
 		return errno;
 	}

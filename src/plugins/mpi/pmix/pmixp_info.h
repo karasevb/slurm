@@ -2,7 +2,7 @@
  **  pmix_info.h - PMIx various environment information
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -74,7 +74,19 @@ typedef struct {
 	gid_t gid;
 } pmix_jobinfo_t;
 
+typedef struct {
+#ifndef NDEBUG
+#define PMIXP_INFO_MAGIC 0xCAFE01F0
+	int magic;
+#endif
+	char nspace[PMIXP_MAX_NSLEN];
+	uint32_t jobid; /* Current Slurm job id */
+	uint32_t stepid; /* Current step id (or NO_VAL) */
+	char *lib_tmpdir;
+} pmixp_srun_info_t;
+
 extern pmix_jobinfo_t _pmixp_job_info;
+extern pmixp_srun_info_t _pmixp_srun_info;
 
 /* slurmd contact information */
 void pmixp_info_srv_usock_set(char *path, int fd);
@@ -86,7 +98,18 @@ bool pmixp_info_srv_direct_conn_early(void);
 bool pmixp_info_srv_direct_conn_ucx(void);
 int pmixp_info_srv_fence_coll_type(void);
 bool pmixp_info_srv_fence_coll_barrier(void);
+int pmixp_info_gen_nspace(uint32_t jobid, uint32_t stepid, char *nspace);
+hostlist_t pmixp_info_step_hl_set(char ***env);
+char *pmixp_info_get_node_map(hostlist_t hl);
+char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
+			      uint32_t ntasks, uint32_t *task_cnts,
+			      uint32_t *task_map);
 
+/* srun pmix lib information */
+int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env);
+uint32_t pmixp_srun_jobid(void);
+uint32_t pmixp_srun_stepid(void);
+char *pmixp_srun_tmpdir_lib(void);
 
 static inline int pmixp_info_timeout(void)
 {
