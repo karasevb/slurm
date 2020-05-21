@@ -2,7 +2,7 @@
  **  pmix_server.c - PMIx server side functionality
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -365,6 +365,71 @@ pmixp_p2p_data_t _direct_proto = {
 
 static volatile int _was_initialized = 0;
 
+#include <pmix_server.h>
+#include "src/common/base64_encode.h"
+
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
+{
+	int rc;
+	char *mapping;
+	char *tmpdir_prefix = getenv(PMIXP_OS_TMPDIR_ENV);
+
+	pmixp_srun_info_set(job, env);
+
+	if (!tmpdir_prefix) {
+		tmpdir_prefix = PMIXP_TMPDIR_DEFAULT;
+	}
+	xstrfmtcat(_pmixp_srun_info.lib_tmpdir, "%s/srun.slurm.pmix.%d.%d",
+	           tmpdir_prefix, job->jobid, job->stepid);
+	if (!_pmixp_srun_info.lib_tmpdir) {
+		PMIXP_ERROR("Cannot create srun pmix tmpdir");
+		return SLURM_ERROR;
+	}
+
+	rc = pmixp_srun_libpmix_init();
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR("pmixp_libpmix_init() failed");
+		goto err_lib;
+	}
+
+	mapping = getenvp(*env, PMIXP_SLURM_MAPPING_ENV);
+	if (!mapping) {
+		PMIXP_ERROR_NO(ENOENT, "No %s environment variable found!",
+		               PMIXP_SLURM_MAPPING_ENV);
+		goto err_exit;
+	}
+
+	rc = pmixp_libpmix_setup_application(job, mapping, env);
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR("pmixp_libpmix_setup_application() failed");
+		goto err_exit;
+	}
+
+	_was_initialized = 1;
+
+	return SLURM_SUCCESS;
+
+err_exit:
+	pmixp_srun_libpmix_finalize();
+err_lib:
+	return rc;
+}
+
+int pmixp_srun_finalize(void)
+{
+	char *tmpdir;
+	if (!_was_initialized) {
+		/* nothing to do */
+		return SLURM_SUCCESS;
+	}
+
+	pmixp_srun_libpmix_finalize();
+	tmpdir = pmixp_srun_tmpdir_lib();
+	xfree(tmpdir);
+
+	return SLURM_SUCCESS;
+}
+
 int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 {
 	char *path;
@@ -420,6 +485,11 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 
 	if (SLURM_SUCCESS != (rc = pmixp_libpmix_init())) {
 		PMIXP_ERROR("pmixp_libpmix_init() failed");
+		goto err_lib;
+	}
+
+	if (SLURM_SUCCESS != (rc = pmixp_libpmix_setup_local_app(env))) {
+		PMIXP_ERROR("pmixp_libpmix_setup_local_app() failed");
 		goto err_lib;
 	}
 

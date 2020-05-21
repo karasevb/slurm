@@ -213,17 +213,15 @@ static pmix_server_module_t slurm_pmix_cb = {
 	NULL
 };
 
-int pmixp_lib_init(void)
+int pmixp_lib_init(uint32_t jobuid, char *tmpdir)
 {
 	pmix_info_t *kvp = NULL;
 	pmix_status_t rc;
-	uint32_t jobuid = pmixp_info_jobuid();
 
 	PMIXP_KVP_ADD(kvp, PMIX_USERID, &jobuid, PMIX_UINT32);
 
 #ifdef PMIX_SERVER_TMPDIR
-	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR,
-		       pmixp_info_tmpdir_lib(), PMIX_STRING);
+	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR, tmpdir, PMIX_STRING);
 #endif
 
 	/* setup the server library */
