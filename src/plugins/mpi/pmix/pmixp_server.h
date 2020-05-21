@@ -129,4 +129,7 @@ static inline void pmixp_server_buf_reserve(Buf buf, uint32_t size)
 	}
 }
 
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_finalize(void);
+
 #endif /* PMIXP_SERVER_H */

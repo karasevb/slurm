@@ -95,8 +95,6 @@ const uint32_t plugin_version = SLURM_VERSION_NUMBER;
 
 void *libpmix_plug = NULL;
 
-char *process_mapping = NULL;
-
 static void _libpmix_close(void *lib_plug)
 {
 	xassert(lib_plug);
@@ -212,42 +210,17 @@ extern int p_mpi_hook_slurmstepd_task(
 extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 	const mpi_plugin_client_info_t *job, char ***env)
 {
-	static pthread_mutex_t setup_mutex = PTHREAD_MUTEX_INITIALIZER;
-	static pthread_cond_t setup_cond  = PTHREAD_COND_INITIALIZER;
-	static bool setup_done = false;
-	uint32_t nnodes, ntasks, **tids;
-	uint16_t *task_cnt;
 	int ret;
 
 	if ((ret = pmixp_abort_agent_start(env)) != SLURM_SUCCESS) {
 		PMIXP_ERROR("pmixp_abort_agent_start() failed %d", ret);
-		return NULL;
+		return SLURM_ERROR;
 	}
 
-	PMIXP_DEBUG("setup process mapping in srun");
-	if ((job->het_job_id == NO_VAL) || (job->het_job_task_offset == 0)) {
-		nnodes = job->step_layout->node_cnt;
-		ntasks = job->step_layout->task_cnt;
-		task_cnt = job->step_layout->tasks;
-		tids = job->step_layout->tids;
-		process_mapping = pack_process_mapping(nnodes, ntasks,
-						       task_cnt, tids);
-		slurm_mutex_lock(&setup_mutex);
-		setup_done = true;
-		slurm_cond_broadcast(&setup_cond);
-		slurm_mutex_unlock(&setup_mutex);
-	} else {
-		slurm_mutex_lock(&setup_mutex);
-		while (!setup_done)
-			slurm_cond_wait(&setup_cond, &setup_mutex);
-		slurm_mutex_unlock(&setup_mutex);
-	}
-
-	if (!process_mapping) {
-		PMIXP_ERROR("Cannot create process mapping");
+	if (SLURM_SUCCESS != pmixp_srun_init(job, env)) {
+		PMIXP_ERROR("pmixp_srun_init() failed");
 		return NULL;
 	}
-	setenvf(env, PMIXP_SLURM_MAPPING_ENV, "%s", process_mapping);
 
 	/* only return NULL on error */
 	return (void *)0xdeadbeef;
@@ -255,6 +228,12 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 
 extern int p_mpi_hook_client_fini(void)
 {
-	xfree(process_mapping);
+	int rc;
+
+	rc = pmixp_srun_finalize();
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR_STD("pmixp_srun_finalize() failed with error %d\n",
+				rc);
+	}
 	return pmixp_abort_agent_stop();
 }
