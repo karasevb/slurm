@@ -363,15 +363,71 @@ pmixp_p2p_data_t _direct_proto = {
 /*
  * --------------------- Initi/Finalize -------------------
  */
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
+{
+	int rc;
+	char *process_mapping = NULL;
+	static pthread_mutex_t setup_mutex = PTHREAD_MUTEX_INITIALIZER;
+	static pthread_cond_t setup_cond  = PTHREAD_COND_INITIALIZER;
+	static bool setup_done = false;
+	uint32_t nnodes, ntasks, **tids;
+	uint16_t *task_cnt;
 
-static volatile int _was_initialized = 0;
+	PMIXP_DEBUG("setup process mapping in srun");
+	if ((job->het_job_id == NO_VAL) || (job->het_job_task_offset == 0)) {
+		nnodes = job->step_layout->node_cnt;
+		ntasks = job->step_layout->task_cnt;
+		task_cnt = job->step_layout->tasks;
+		tids = job->step_layout->tids;
+		process_mapping = pack_process_mapping(nnodes, ntasks,
+						       task_cnt, tids);
+		slurm_mutex_lock(&setup_mutex);
+		setup_done = true;
+		slurm_cond_broadcast(&setup_cond);
+		slurm_mutex_unlock(&setup_mutex);
+	} else {
+		slurm_mutex_lock(&setup_mutex);
+		while (!setup_done)
+			slurm_cond_wait(&setup_cond, &setup_mutex);
+		slurm_mutex_unlock(&setup_mutex);
+	}
+
+	if (!process_mapping) {
+		PMIXP_ERROR("Cannot create process mapping");
+		return SLURM_ERROR;
+	}
+	setenvf(env, PMIXP_SLURM_MAPPING_ENV, "%s", process_mapping);
+	xfree(process_mapping);
+
+	if (SLURM_SUCCESS != (rc = pmixp_srun_info_set(job, env))) {
+		PMIXP_ERROR("pmixp_info_set(job, env) failed");
+		return rc;
+	}
+
+	if (SLURM_SUCCESS != (rc = pmixp_srun_libpmix_init(job, env))) {
+		return rc;
+	}
+	pmixp_info_set_init();
+
+	return rc;
+}
+
+int pmixp_srun_finalize(void)
+{
+	if (!pmixp_info_is_inited()) {
+		/* nothing to do */
+		return SLURM_SUCCESS;
+	}
+
+	return pmixp_srun_libpmix_finalize();
+}
 
 int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 {
 	char *path;
 	int fd, rc;
 
-	if (SLURM_SUCCESS != (rc = pmixp_info_set(job, env))) {
+	if (SLURM_SUCCESS != (rc = pmixp_stepd_info_set(job, env))) {
 		PMIXP_ERROR("pmixp_info_set(job, env) failed");
 		goto err_info;
 	}
@@ -419,8 +475,13 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 		goto err_dmdx;
 	}
 
-	if (SLURM_SUCCESS != (rc = pmixp_libpmix_init())) {
+	if (SLURM_SUCCESS != (rc = pmixp_stepd_libpmix_init())) {
 		PMIXP_ERROR("pmixp_libpmix_init() failed");
+		goto err_lib;
+	}
+
+	if (SLURM_SUCCESS != (rc = pmixp_libpmix_local_setup(env))) {
+		PMIXP_ERROR("pmixp_lib_local_setup() failed");
 		goto err_lib;
 	}
 
@@ -433,11 +494,11 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 	pmixp_server_init_cperf(env);
 
 	xfree(path);
-	_was_initialized = 1;
+	pmixp_info_set_init();
 	return SLURM_SUCCESS;
 
 err_job:
-	pmixp_libpmix_finalize();
+	pmixp_stepd_libpmix_finalize();
 err_lib:
 	pmixp_dmdx_finalize();
 err_dmdx:
@@ -452,7 +513,7 @@ err_dconn:
 err_usock:
 	xfree(path);
 err_path:
-	pmixp_info_free();
+	pmixp_stepd_info_free();
 err_info:
 	return rc;
 }
@@ -460,12 +521,12 @@ err_info:
 int pmixp_stepd_finalize(void)
 {
 	char *path;
-	if (!_was_initialized) {
+	if (!pmixp_info_is_inited()) {
 		/* nothing to do */
 		return 0;
 	}
 
-	pmixp_libpmix_finalize();
+	pmixp_stepd_libpmix_finalize();
 	pmixp_dmdx_finalize();
 
 	pmixp_conn_fini();
@@ -482,7 +543,7 @@ int pmixp_stepd_finalize(void)
 	xfree(path);
 
 	/* free the information */
-	pmixp_info_free();
+	pmixp_stepd_info_free();
 	return SLURM_SUCCESS;
 }
 
@@ -1370,7 +1431,7 @@ int pmixp_server_direct_conn_early(void)
 
 	PMIXP_DEBUG("called");
 	proc.rank = pmixp_lib_get_wildcard();
-	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
+	strncpy(proc.nspace, pmixp_info_namespace(), PMIXP_MAX_NSLEN);
 
 	for (i=0; i < sizeof(types)/sizeof(types[0]); i++){
 		if (type != PMIXP_COLL_TYPE_FENCE_MAX && type != types[i]) {

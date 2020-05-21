@@ -2,7 +2,7 @@
  **  pmix_client_v1.c - PMIx v1 client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
  *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *
@@ -220,7 +220,7 @@ int pmixp_lib_init(void)
 
 #ifdef PMIX_SERVER_TMPDIR
 	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR,
-		       pmixp_info_tmpdir_lib(), PMIX_STRING);
+		      pmixp_info_tmpdir_lib(), PMIX_STRING);
 #endif
 
 	/* setup the server library */
@@ -248,4 +248,19 @@ int pmixp_lib_finalize(void)
 		rc = SLURM_ERROR;
 	}
 	return rc;
+}
+
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env)
+{
+	return SLURM_SUCCESS;
+}
+
+int pmixp_srun_libpmix_finalize(void)
+{
+	return SLURM_SUCCESS;
+}
+
+int pmixp_libpmix_local_setup(char ***env)
+{
+	return SLURM_SUCCESS;
 }

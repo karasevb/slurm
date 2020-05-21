@@ -83,6 +83,8 @@
 #define PMIXP_SLURM_MAPPING_ENV "SLURM_PMIX_MAPPING_SERV"
 #define PMIXP_SLURM_ABORT_AGENT_IP "SLURM_SRUN_COMM_HOST"
 #define PMIXP_SLURM_ABORT_AGENT_PORT "SLURM_PMIXP_ABORT_AGENT_PORT"
+#define PMIXP_SERVER_SETUP_APP "SLURM_PMIX_SERVER_SETUP_APP"
+#define PMIXP_SERVER_SETUP_APP_FMT "SLURM_PMIX_SERVER_SETUP_APP_%u"
 
 /* ----------------------------------------------------------
  * This variables can be used to adjust the plugin's behavior
