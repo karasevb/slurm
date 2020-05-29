@@ -87,6 +87,7 @@ strong_alias(env_array_overwrite,	slurm_env_array_overwrite);
 strong_alias(env_array_overwrite_fmt,	slurm_env_array_overwrite_fmt);
 strong_alias(env_array_overwrite_het_fmt, slurm_env_array_overwrite_het_fmt);
 strong_alias(env_unset_environment,	slurm_env_unset_environment);
+strong_alias(env_get_val_maxlen,	slurm_env_get_val_maxlen);
 
 #define ENV_BUFSIZE (256 * 1024)
 #define MAX_ENV_STRLEN (32 * 4096)	/* Needed for CPU_BIND and MEM_BIND on
@@ -2300,4 +2301,16 @@ extern char *find_quote_token(char *tmp, char *sep, char **last)
 		}
 
 	}
+}
+
+/*
+ * Get the maximum size of the env value.
+*/
+uint32_t
+env_get_val_maxlen(const char *name)
+{
+	if (!name)
+		return MAX_ENV_STRLEN;
+
+	return MAX_ENV_STRLEN - strlen(name) - 3;
 }
