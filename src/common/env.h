@@ -375,4 +375,10 @@ extern void set_env_from_opts(slurm_opt_t *opt, char ***dest,
  */
 extern char *find_quote_token(char *tmp, char *sep, char **last);
 
+/*
+ * Get the maximum size of the env value for a particular environment variable
+ * with the name env_name.
+*/
+uint32_t env_get_val_maxlen(const char *env_name);
+
 #endif

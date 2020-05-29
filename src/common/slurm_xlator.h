@@ -287,6 +287,7 @@
 #define env_array_overwrite	slurm_env_array_overwrite
 #define env_array_overwrite_fmt slurm_env_array_overwrite_fmt
 #define env_array_overwrite_het_fmt  slurm_env_array_overwrite_het_fmt
+#define env_get_val_maxlen	slurm_env_get_val_maxlen
 
 /* read_config.[ch] functions */
 #define destroy_config_key_pair	slurm_destroy_config_key_pair
