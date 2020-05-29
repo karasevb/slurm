@@ -87,6 +87,7 @@ strong_alias(env_array_overwrite,	slurm_env_array_overwrite);
 strong_alias(env_array_overwrite_fmt,	slurm_env_array_overwrite_fmt);
 strong_alias(env_array_overwrite_het_fmt, slurm_env_array_overwrite_het_fmt);
 strong_alias(env_unset_environment,	slurm_env_unset_environment);
+strong_alias(env_get_val_maxlen,	slurm_env_get_val_maxlen);
 
 #define ENV_BUFSIZE (256 * 1024)
 #define MAX_ENV_STRLEN (32 * 4096)	/* Needed for CPU_BIND and MEM_BIND on
@@ -2297,4 +2298,23 @@ extern char *find_quote_token(char *tmp, char *sep, char **last)
 		}
 
 	}
+}
+
+/*
+ * Get the maximum size of the env value for a particular environment variable
+ * with the name env_name.
+ */
+uint32_t
+env_get_val_maxlen(const char *env_name)
+{
+	if (!env_name)
+		return MAX_ENV_STRLEN;
+	/* not included delimiter '=', end of line '\0', at least one-byte value */
+	/* From setenvf():
+	 *      size = strlen(name) + strlen(value) + 2;
+	 *  [*] if (size >= MAX_ENV_STRLEN)
+	 * Thus, available space for value is:
+	 *	MAX_ENV_STRLEN - env_name - 2 - 1(to ensure that [*] is false)
+	 */
+	return MAX_ENV_STRLEN - strlen(env_name) - 3;
 }
