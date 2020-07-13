@@ -2,9 +2,13 @@
  **  pmix_client_v2.c - PMIx v2 client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
  *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
+ *  Copyright (C) 2020      Siberian State University of Telecommunications
+ *                          and Information Sciences (SibSUTIS).
+ *                          All rights reserved.
+ *  Written by Boris Bochkarev <boris-bochkaryov@yandex.ru>.
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -81,39 +85,27 @@ static pmix_status_t _client_finalized(const pmix_proc_t *proc,
 	return PMIX_SUCCESS;
 }
 
-static pmix_status_t _abort_fn(const pmix_proc_t *proc, void *server_object,
+static pmix_status_t _abort_fn(const pmix_proc_t *pmix_proc, void *server_object,
 			       int status, const char msg[],
-			       pmix_proc_t procs[], size_t nprocs,
+			       pmix_proc_t pmix_procs[], size_t nprocs,
 			       pmix_op_cbfunc_t cbfunc, void *cbdata)
 {
-	/* Just kill this stepid for now. Think what we can do for FT here? */
-	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
+	int rc, i;
+	pmixp_proc_t proc;
+	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
 
-	uint32_t status_net = htonl((uint32_t)status);
-
-	slurm_addr_t abort_server;
-	abort_server.sin_family = AF_INET;
-	abort_server.sin_port = pmixp_info_abort_agent_port();
-	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
-
-	int client_sock;
-	if((client_sock = slurm_open_msg_conn(&abort_server)) < 0){
-		PMIXP_ERROR("Error create and conn client socket: %s", strerror(errno));
-		return SLURM_ERROR;
+	proc.rank = pmix_proc->rank;
+	strncpy(proc.nspace, pmix_proc->nspace, PMIXP_MAX_NSLEN);
+	for (i = 0; i < nprocs; i++) {
+		procs[i].rank = pmix_procs[i].rank;
+		strncpy(procs[i].nspace, pmix_procs[i].nspace, PMIXP_MAX_NSLEN);
 	}
 
-	int len;
-	if ((len = slurm_write_stream(client_sock, &status_net, sizeof(status_net))) == -1)
-		return SLURM_ERROR;
-
-	if ((len = slurm_read_stream(client_sock, &status_net, sizeof(status_net))) == -1)
-		return SLURM_ERROR;
-
-	close(client_sock);
-
-	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
-
-	return status;
+	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
+	rc = pmixp_lib_abort(&proc, server_object, status, msg, procs, nprocs,
+			cbfunc, cbdata);
+	xfree(procs);
+	return (SLURM_SUCCESS == rc) ? PMIX_SUCCESS : PMIX_ERROR;
 }
 
 static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v2[], size_t nprocs,

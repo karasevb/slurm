@@ -85,14 +85,22 @@ static pmix_status_t _abort_fn(const pmix_proc_t *proc, void *server_object,
 			      pmix_proc_t procs[], size_t nprocs,
 			      pmix_op_cbfunc_t cbfunc, void *cbdata)
 {
-	/* Just kill this stepid for now. Think what we can do for FT here? */
-	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
-	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
+	int rc, i;
+	pmixp_proc_t proc;
+	pmixp_proc_t *procs = xmalloc(sizeof(*procs) * nprocs);
 
-	if (NULL != cbfunc) {
-		cbfunc(PMIX_SUCCESS, cbdata);
+	proc.rank = pmix_proc->rank;
+	strncpy(proc.nspace, pmix_proc->nspace, PMIXP_MAX_NSLEN);
+	for (i = 0; i < nprocs; i++) {
+		procs[i].rank = pmix_procs[i].rank;
+		strncpy(procs[i].nspace, pmix_procs[i].nspace, PMIXP_MAX_NSLEN);
 	}
-	return PMIX_SUCCESS;
+
+	PMIXP_DEBUG("called: status = %d, msg = %s", status, msg);
+	rc = pmixp_lib_abort(&proc, server_object, status, msg, procs, nprocs,
+			cbfunc, cbdata);
+	xfree(procs);
+	return (SLURM_SUCCESS == rc) ? PMIX_SUCCESS : PMIX_ERROR;
 }
 
 static pmix_status_t _fencenb_fn(const pmix_proc_t procs_v1[], size_t nprocs,

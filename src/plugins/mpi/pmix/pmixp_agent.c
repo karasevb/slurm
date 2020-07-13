@@ -2,8 +2,12 @@
  **  pmix_agent.c - PMIx agent thread
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Y. Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
+ *  Copyright (C) 2020      Siberian State University of Telecommunications
+ *                          and Information Sciences (SibSUTIS).
+ *                          All rights reserved.
+ *  Written by Boris Bochkarev <boris-bochkaryov@yandex.ru>.
  *
  *  This file is part of Slurm, a resource management program.
  *  For details, see <https://slurm.schedmd.com/>.
@@ -154,12 +158,7 @@ static int _abort_conn_read(eio_obj_t *obj, List objs)
 {
 	struct sockaddr_in abort_client;
 	int abort_client_sock;
-	uint32_t abort_client_len = sizeof(abort_client);
 	uint32_t ret_status;
-
-	int fd;
-	struct sockaddr addr;
-	socklen_t size = sizeof(addr);
 	int shutdown = 0;
 
 	while (1) {
@@ -179,10 +178,10 @@ static int _abort_conn_read(eio_obj_t *obj, List objs)
 		PMIXP_DEBUG("New abort client: %s:%d", inet_ntoa(abort_client.sin_addr), abort_client.sin_port);
 
 		int len;
-		if ((len = slurm_read_stream(abort_client_sock, &ret_status, sizeof(ret_status))) == -1)
+		if ((len = slurm_read_stream(abort_client_sock, (char*)&ret_status, sizeof(ret_status))) == -1)
 			return SLURM_ERROR;
 
-		if ((len = slurm_write_stream(abort_client_sock, &ret_status, sizeof(ret_status))) == -1)
+		if ((len = slurm_write_stream(abort_client_sock, (char*)&ret_status, sizeof(ret_status))) == -1)
 			return SLURM_ERROR;
 
 		if (SLURM_SUCCESS == pmixp_info_abort_status())
@@ -350,6 +349,7 @@ static void *_pmix_abort_thread(void *args)
 	PMIXP_DEBUG("Start abort thread");
 	eio_handle_mainloop(_abort_handle);
 	PMIXP_DEBUG("Abort thread exit");
+	return NULL;
 }
 
 int pmixp_abort_agent_start(char ***env)
@@ -377,21 +377,18 @@ int pmixp_abort_agent_start(char ***env)
 	obj = eio_obj_create(abort_server_socket, &abort_ops, (void *)(-1));
 	eio_new_initial_obj(_abort_handle, obj);
 
-	slurm_thread_create(&_abort_tid, _pmix_abort_thread, (void*)abort_server_socket);
+	slurm_thread_create(&_abort_tid, _pmix_abort_thread, NULL);
 
 	return SLURM_SUCCESS;
 }
 
 int pmixp_abort_agent_stop(void)
 {
-	char c = 1;
 	if (_abort_tid) {
 		eio_signal_shutdown(_abort_handle);
-
 		pthread_join(_abort_tid, NULL);
 		_abort_tid = 0;
 	}
-
 	return pmixp_info_abort_status();
 }
 
