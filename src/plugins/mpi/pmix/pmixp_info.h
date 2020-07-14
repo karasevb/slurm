@@ -76,7 +76,7 @@ typedef struct {
 	char *spool_dir;
 	uid_t uid;
 	gid_t gid;
-	char* srun_ip;
+	char *srun_ip;
 	int abort_agent_port;
 	int abort_status;
 } pmix_jobinfo_t;

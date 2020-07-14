@@ -795,8 +795,6 @@ error:
 	return SLURM_ERROR;
 }
 
-
-
 extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 			   int status, const char msg[],
 			   pmixp_proc_t procs[], size_t nprocs,
@@ -804,24 +802,28 @@ extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 {
 	pmix_op_cbfunc_t abort_cbfunc = (pmix_op_cbfunc_t)cbfunc;
 	uint32_t status_net = htonl((uint32_t)status);
-
+	int len;
+	int client_sock;
 	slurm_addr_t abort_server;
+
 	abort_server.sin_family = AF_INET;
 	abort_server.sin_port = pmixp_info_abort_agent_port();
 	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
 
-	int client_sock;
 	if((client_sock = slurm_open_msg_conn(&abort_server)) < 0){
-		PMIXP_ERROR("Error create and conn client socket: %s", strerror(errno));
+		PMIXP_ERROR("slurm_open_msg_conn: %m");
 		return SLURM_ERROR;
 	}
 
-	int len;
-	if ((len = slurm_write_stream(client_sock, (char*)&status_net, sizeof(status_net))) == -1)
+	if ((len = slurm_write_stream(client_sock, (char*)&status_net,
+				      sizeof(status_net))) == -1) {
 		return SLURM_ERROR;
+	}
 
-	if ((len = slurm_read_stream(client_sock, (char*)&status_net, sizeof(status_net))) == -1)
+	if ((len = slurm_read_stream(client_sock, (char*)&status_net,
+				     sizeof(status_net))) == -1) {
 		return SLURM_ERROR;
+	}
 
 	close(client_sock);
 
