@@ -216,6 +216,10 @@ int pmixp_info_free(void)
 		xfree(_pmixp_job_info.task_map_packed);
 	}
 
+	if (_pmixp_job_info.srun_ip) {
+		xfree(_pmixp_job_info.srun_ip);
+	}
+
 	hostlist_destroy(_pmixp_job_info.job_hl);
 	hostlist_destroy(_pmixp_job_info.step_hl);
 	if (_pmixp_job_info.hostname) {
@@ -300,16 +304,16 @@ static int _resources_set(char ***env)
 {
 	char *p = NULL;
 
+	/* Initialize abort thread info */
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_IP);
-	if (NULL != p) {
+	if (p) {
 		_pmixp_job_info.srun_ip = xstrdup(p);
 	} else {
 		_pmixp_job_info.srun_ip = NULL;
 	}
-
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_PORT);
-	if (NULL != p) {
-		_pmixp_job_info.abort_agent_port = atoi(xstrdup(p));
+	if (p) {
+		_pmixp_job_info.abort_agent_port = atoi(p);
 	} else {
 		_pmixp_job_info.abort_agent_port = -1;
 	}
@@ -382,6 +386,9 @@ err_exit:
 	hostlist_destroy(_pmixp_job_info.step_hl);
 	if (_pmixp_job_info.hostname) {
 		xfree(_pmixp_job_info.hostname);
+	}
+	if (_pmixp_job_info.srun_ip) {
+		xfree(_pmixp_job_info.srun_ip);
 	}
 	return SLURM_ERROR;
 }
