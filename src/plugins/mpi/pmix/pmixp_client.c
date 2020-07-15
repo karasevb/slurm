@@ -831,6 +831,7 @@ extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 				     sizeof(status_net))) == -1) {
 		return SLURM_ERROR;
 	}
+	xassert(status_net == htonl((uint32_t)status));
 
 	close(client_sock);
 

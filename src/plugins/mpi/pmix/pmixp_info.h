@@ -78,7 +78,6 @@ typedef struct {
 	gid_t gid;
 	char *srun_ip;
 	int abort_agent_port;
-	int abort_status;
 } pmix_jobinfo_t;
 
 extern pmix_jobinfo_t _pmixp_job_info;
@@ -160,18 +159,6 @@ static inline int pmixp_info_abort_agent_port(void)
 {
 	xassert(_pmixp_job_info.magic == PMIXP_INFO_MAGIC);
 	return _pmixp_job_info.abort_agent_port;
-}
-
-static inline int pmixp_info_abort_status(void)
-{
-	xassert(_pmixp_job_info.magic == PMIXP_INFO_MAGIC);
-	return _pmixp_job_info.abort_status;
-}
-
-static inline void pmixp_info_set_abort_status(int status)
-{
-	xassert(_pmixp_job_info.magic == PMIXP_INFO_MAGIC);
-	_pmixp_job_info.abort_status = status;
 }
 
 static inline uint32_t pmixp_info_stepid(void)

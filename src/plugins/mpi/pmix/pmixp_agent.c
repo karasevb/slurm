@@ -64,6 +64,8 @@ static pthread_t _agent_tid = 0;
 static pthread_t _timer_tid = 0;
 static pthread_t _abort_tid = 0;
 
+static int _abort_status = 0;
+
 struct timer_data_t {
 	int work_in, work_out;
 	int stop_in, stop_out;
@@ -196,10 +198,9 @@ static int _abort_conn_read(eio_obj_t *obj, List objs)
 			return SLURM_ERROR;
 		}
 
-		if (!pmixp_info_abort_status()) {
-			pmixp_info_set_abort_status((int)ntohl(ret_status));
+		if (!_abort_status) {
+			_abort_status = (int)ntohl(ret_status);
 		}
-
 		close(abort_client_sock);
 	}
 	return SLURM_SUCCESS;
@@ -401,7 +402,7 @@ int pmixp_abort_agent_stop(void)
 		pthread_join(_abort_tid, NULL);
 		_abort_tid = 0;
 	}
-	return pmixp_info_abort_status();
+	return _abort_status;
 }
 
 int pmixp_agent_start(void)

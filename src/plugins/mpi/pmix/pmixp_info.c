@@ -317,7 +317,6 @@ static int _resources_set(char ***env)
 	} else {
 		_pmixp_job_info.abort_agent_port = -1;
 	}
-	_pmixp_job_info.abort_status = 0;
 
 	/* Initialize all memory pointers that would be allocated to NULL
 	 * So in case of error exit we will know what to xfree
