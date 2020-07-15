@@ -3,7 +3,8 @@
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
  *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
- *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
+ *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>,
+ *             Boris Karasev <karasev.b@gmail.com, boriska@mellanox.com>.
  *  Copyright (C) 2020      Siberian State University of Telecommunications
  *                          and Information Sciences (SibSUTIS).
  *                          All rights reserved.
