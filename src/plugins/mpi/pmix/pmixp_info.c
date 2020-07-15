@@ -306,13 +306,13 @@ static int _resources_set(char ***env)
 
 	/* Initialize abort thread info */
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_IP);
-	if (!p) {
+	if (p) {
 		_pmixp_job_info.srun_ip = xstrdup(p);
 	} else {
 		_pmixp_job_info.srun_ip = NULL;
 	}
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_PORT);
-	if (!p) {
+	if (p) {
 		_pmixp_job_info.abort_agent_port = atoi(p);
 	} else {
 		_pmixp_job_info.abort_agent_port = -1;

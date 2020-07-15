@@ -367,7 +367,6 @@ static void *_pmix_abort_thread(void *args)
 
 int pmixp_abort_agent_start(char ***env)
 {
-	char ip_str[INET6_ADDRSTRLEN];
 	int abort_server_socket = -1;
 	slurm_addr_t abort_server;
 	eio_obj_t *obj;
@@ -383,17 +382,7 @@ int pmixp_abort_agent_start(char ***env)
 		PMIXP_ERROR("slurm_get_stream_addr error %m");
 		return SLURM_ERROR;
 	}
-	PMIXP_DEBUG("Abort server ip:port: %s:%d",
-		    inet_ntoa(abort_server.sin_addr),
-		    abort_server.sin_port);
-
-	if (inet_ntop(AF_INET, &abort_server.sin_addr, ip_str, INET6_ADDRSTRLEN)
-			== NULL) {
-		PMIXP_ERROR("inet_ntop failed");
-		return SLURM_ERROR;
-	}
-
-	setenvf(env, PMIXP_SLURM_ABORT_AGENT_IP, "%s", ip_str);
+	PMIXP_DEBUG("Abort agent port: %d", abort_server.sin_port);
 	setenvf(env, PMIXP_SLURM_ABORT_AGENT_PORT, "%d", abort_server.sin_port);
 
 	_abort_handle = eio_handle_create(0);

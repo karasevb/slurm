@@ -806,6 +806,13 @@ extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 	int client_sock;
 	slurm_addr_t abort_server;
 
+	xassert(pmixp_info_srun_ip());
+	xassert(pmixp_info_abort_agent_port() > 0);
+
+	PMIXP_DEBUG("Connecting to abort agent: %s:%d",
+		    pmixp_info_srun_ip(),
+		    pmixp_info_abort_agent_port());
+
 	abort_server.sin_family = AF_INET;
 	abort_server.sin_port = pmixp_info_abort_agent_port();
 	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
