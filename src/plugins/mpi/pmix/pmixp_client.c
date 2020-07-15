@@ -806,8 +806,12 @@ extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 	int client_sock;
 	slurm_addr_t abort_server;
 
-	xassert(pmixp_info_srun_ip());
-	xassert(pmixp_info_abort_agent_port() > 0);
+	if (!(pmixp_info_srun_ip()) || (pmixp_info_abort_agent_port() <= 0)) {
+		PMIXP_ERROR("Invalid abort agent connection address: %s:%d",
+			    pmixp_info_srun_ip() ? pmixp_info_srun_ip(): "NULL",
+			    pmixp_info_abort_agent_port());
+		goto job_kill;
+	}
 
 	PMIXP_DEBUG("Connecting to abort agent: %s:%d",
 		    pmixp_info_srun_ip(),
@@ -835,6 +839,7 @@ extern int pmixp_lib_abort(const pmixp_proc_t *proc, void *server_object,
 
 	close(client_sock);
 
+job_kill:
 	slurm_kill_job_step(pmixp_info_jobid(), pmixp_info_stepid(), SIGKILL);
 
 	if (NULL != abort_cbfunc) {
