@@ -88,6 +88,10 @@ int pmixp_server_send_nb(pmixp_ep_t *ep, pmixp_srv_cmd_t type,
 Buf pmixp_server_buf_new(void);
 size_t pmixp_server_buf_reset(Buf buf);
 
+void pmixp_abort_handle(int fd);
+void pmixp_abort_propagate(int status);
+int pmixp_abort_code_get(void);
+
 #ifndef NDEBUG
 /* Debug tools used only if debug was enabled */
 void pmixp_server_init_pp(char ***env);

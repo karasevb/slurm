@@ -1022,6 +1022,95 @@ send_direct:
 }
 
 /*
+ * ------------------- Abort handling protocol -----------------------
+ */
+
+static int _abort_status = SLURM_SUCCESS;
+
+void pmixp_abort_handle(int fd)
+{
+	uint32_t status;
+	int len;
+
+	/* Receive the status from stepd */
+	len = slurm_read_stream(fd, (char*)&status, sizeof(status));
+	if (len != sizeof(status)) {
+		PMIXP_ERROR("slurm_read_stream() failed: fd=%d; %m", fd);
+		return;
+	}
+	/* Apply the received status */
+	if (!_abort_status) {
+		_abort_status = (int)ntohl(status);
+	}
+
+	/* Reply back to confirm that the status was processed */
+	len = slurm_write_stream(fd, (char*)&status, sizeof(status));
+	if (len != sizeof(status)) {
+		PMIXP_ERROR("slurm_write_stream() failed: fd=%d; %m", fd);
+		return;
+	}
+}
+
+void pmixp_abort_propagate(int status)
+{
+	uint32_t status_net = htonl((uint32_t)status);
+	int len;
+	int fd;
+	slurm_addr_t abort_server;
+
+	if (!(pmixp_info_srun_ip()) || (pmixp_info_abort_agent_port() <= 0)) {
+		PMIXP_ERROR("Invalid abort agent connection address: %s:%d",
+			    pmixp_info_srun_ip() ? pmixp_info_srun_ip(): "NULL",
+			    pmixp_info_abort_agent_port());
+		return;
+	}
+
+	PMIXP_DEBUG("Connecting to abort agent: %s:%d",
+		    pmixp_info_srun_ip(),
+		    pmixp_info_abort_agent_port());
+
+	abort_server.sin_family = AF_INET;
+	abort_server.sin_port = pmixp_info_abort_agent_port();
+	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
+
+	fd = slurm_open_msg_conn(&abort_server);
+	if(fd < 0) {
+		PMIXP_ERROR("slurm_open_msg_conn() failed: %m");
+		PMIXP_ERROR("Connecting to abort agent failed: %s:%d",
+			    pmixp_info_srun_ip(),
+			    pmixp_info_abort_agent_port());
+		return;
+	}
+
+	len = slurm_write_stream(fd, (char*)&status_net, sizeof(status_net));
+	if (len != sizeof(status_net)) {
+		PMIXP_ERROR("slurm_open_msg_conn() failed: %m");
+		PMIXP_ERROR("Communicating with abort agent failed: %s:%d",
+			    pmixp_info_srun_ip(),
+			    pmixp_info_abort_agent_port());
+		goto close_fd;
+	}
+
+	len = slurm_read_stream(fd, (char*)&status_net, sizeof(status_net));
+	if (len != sizeof(status_net)) {
+		PMIXP_ERROR("slurm_open_msg_conn() failed: %m");
+		PMIXP_ERROR("Communicating with abort agent failed: %s:%d",
+			    pmixp_info_srun_ip(),
+			    pmixp_info_abort_agent_port());
+		goto close_fd;
+	}
+	xassert(status_net == htonl((uint32_t)status));
+close_fd:
+	close(fd);
+}
+
+int pmixp_abort_code_get(void)
+{
+	return _abort_status;
+}
+
+
+/*
  * ------------------- DIRECT communication protocol -----------------------
  */
 
