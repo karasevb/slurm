@@ -334,7 +334,7 @@ static int _ring_forward_data(pmixp_coll_ring_ctx_t *coll_ctx, uint32_t contrib_
 
 	pmixp_coll_ring_ctx_sanity_check(coll_ctx);
 
-	PMIXP_RING_PROFILE(coll, coll_ctx, "forward", _ring_next_id(coll), hdr.seq, hdr.hop_seq, hdr.msgsize, hdr.contrib_id);
+	PMIXP_RING_PROFILE(coll, coll_ctx, "forward", _ring_next_id(coll), hdr.seq, hdr.hop_seq, hdr.contrib_id, hdr.msgsize);
 	if (!buf) {
 		rc = SLURM_ERROR;
 		goto exit;
