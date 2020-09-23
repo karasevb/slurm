@@ -150,7 +150,8 @@ extern int p_mpi_hook_slurmstepd_prefork(
 {
 	int ret;
 	pmixp_debug_hang(0);
-	PMIXP_DEBUG("start");
+	// tmp changed to error for profiling
+	PMIXP_ERROR("start");
 
 	if (job->batch)
 		return SLURM_SUCCESS;
