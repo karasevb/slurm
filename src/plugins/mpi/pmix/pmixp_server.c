@@ -1070,9 +1070,8 @@ void pmixp_abort_propagate(int status)
 		    pmixp_info_srun_ip(),
 		    pmixp_info_abort_agent_port());
 
-	abort_server.sin_family = AF_INET;
-	abort_server.sin_port = pmixp_info_abort_agent_port();
-	abort_server.sin_addr.s_addr = inet_addr(pmixp_info_srun_ip());
+	slurm_set_addr(&abort_server, pmixp_info_abort_agent_port(),
+		       pmixp_info_srun_ip());
 
 	fd = slurm_open_msg_conn(&abort_server);
 	if(fd < 0) {
