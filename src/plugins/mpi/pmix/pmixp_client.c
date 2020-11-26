@@ -911,7 +911,7 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 
 	PMIX_INFO_CREATE(info, 2);
 
-	pmixp_info_gen_nspace(job->jobid, job->stepid, nspace);
+	pmixp_info_gen_nspace(job->step_id.job_id, job->step_id.step_id, nspace);
 	strp_hl = hostlist_create(job->step_layout->node_list);
 	if (strp_hl == NULL){
 		rc = SLURM_ERROR;

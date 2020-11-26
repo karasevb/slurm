@@ -129,10 +129,10 @@ int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env)
 #ifndef NDEBUG
 	_pmixp_srun_info.magic = PMIXP_INFO_MAGIC;
 #endif
-	_pmixp_srun_info.jobid = job->jobid;
-	_pmixp_srun_info.stepid = job->stepid;
+	_pmixp_srun_info.step_id = job->step_id;
 
-	pmixp_info_gen_nspace(job->jobid, job->stepid, _pmixp_srun_info.nspace);
+	pmixp_info_gen_nspace(job->step_id.job_id, job->step_id.step_id,
+			      _pmixp_srun_info.nspace);
 
 	_pmixp_srun_info.lib_tmpdir = NULL;
 
@@ -678,13 +678,13 @@ char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
 uint32_t pmixp_srun_jobid(void)
 {
 	xassert(_pmixp_srun_info.magic == PMIXP_INFO_MAGIC);
-	return _pmixp_srun_info.jobid;
+	return _pmixp_srun_info.step_id.job_id;
 }
 
 uint32_t pmixp_srun_stepid(void)
 {
 	xassert(_pmixp_srun_info.magic == PMIXP_INFO_MAGIC);
-	return _pmixp_srun_info.stepid;
+	return _pmixp_srun_info.step_id.step_id;
 }
 
 char *pmixp_srun_tmpdir_lib(void)

@@ -80,8 +80,7 @@ typedef struct {
 	int magic;
 #endif
 	char nspace[PMIXP_MAX_NSLEN];
-	uint32_t jobid; /* Current Slurm job id */
-	uint32_t stepid; /* Current step id (or NO_VAL) */
+	slurm_step_id_t step_id; /* Current step id (or NO_VAL) */
 	char *lib_tmpdir;
 } pmixp_srun_info_t;
 
