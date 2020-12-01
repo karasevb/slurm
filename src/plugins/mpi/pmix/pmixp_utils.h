@@ -455,4 +455,7 @@ static inline pmixp_list_elem_t *pmixp_rlist_rem(
 	return ret;
 }
 
+char *pmixp_base64_encode(char *buf, size_t length, size_t *enc_len);
+char *pmixp_base64_decode(char *buf, size_t length, size_t *dec_len);
+
 #endif /* PMIXP_UTILS_H*/
