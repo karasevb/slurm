@@ -610,9 +610,10 @@ int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 	if (!tmpdir_prefix) {
 		tmpdir_prefix = PMIXP_TMPDIR_DEFAULT;
 	}
-	xstrfmtcat(_pmixp_srun_info.lib_tmpdir, "%s/srun.slurm.pmix.%d.%d",
-		   tmpdir_prefix, job->step_id.job_id, job->step_id.step_id);
-	if (!_pmixp_srun_info.lib_tmpdir) {
+	xstrfmtcat(_pmixp_srun_info.proc_info.lib_tmpdir,
+		   "%s/srun.slurm.pmix.%d.%d", tmpdir_prefix,
+		   job->step_id.job_id, job->step_id.step_id);
+	if (!_pmixp_srun_info.proc_info.lib_tmpdir) {
 		PMIXP_ERROR("Cannot create srun pmix tmpdir");
 		return SLURM_ERROR;
 	}

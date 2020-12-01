@@ -1311,7 +1311,8 @@ int pmixp_server_direct_conn_early(void)
 
 	PMIXP_DEBUG("called");
 	proc.rank = pmixp_lib_get_wildcard();
-	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
+	strncpy(proc.nspace, _pmixp_stepd_info.proc_info.nspace,
+		PMIXP_MAX_NSLEN);
 
 	for (i=0; i < sizeof(types)/sizeof(types[0]); i++){
 		if (type != PMIXP_COLL_TYPE_FENCE_MAX && type != types[i]) {
