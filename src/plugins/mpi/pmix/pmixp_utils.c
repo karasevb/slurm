@@ -607,7 +607,7 @@ exit:
 	return rc;
 }
 
-int pmixp_mkdir(char *path, mode_t rights, uid_t uid)
+int pmixp_mkdir(char *path, mode_t rights)
 {
 	/* NOTE: we need user who owns the job to access PMIx usock
 	 * file. According to 'man 7 unix':
@@ -635,7 +635,7 @@ int pmixp_mkdir(char *path, mode_t rights, uid_t uid)
 		return errno;
 	}
 
-	if (chown(path, uid, (gid_t) -1) < 0) {
+	if (chown(path, (uid_t) pmixp_info_jobuid(), (gid_t) -1) < 0) {
 		error("%s: chown(%s): %m", __func__, path);
 		return errno;
 	}

@@ -45,6 +45,7 @@
 #include "pmixp_server.h"
 #include "pmixp_dmdx.h"
 #include "pmixp_client.h"
+#include "pmixp_info.h"
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -235,17 +236,19 @@ static pmix_server_module_t slurm_pmix_cb = {
 	.job_control = _job_control
 };
 
-int pmixp_lib_init(uint32_t jobuid, char *tmpdir)
+int pmixp_lib_init(void)
 {
 	pmix_info_t *kvp = NULL;
 	pmix_status_t rc;
+	uint32_t jobuid = pmixp_info_jobuid();
 #ifdef PMIX_SERVER_SCHEDULER
 	bool flag = 1;
 #endif
 
 	PMIXP_KVP_ADD(kvp, PMIX_USERID, &jobuid, PMIX_UINT32);
 #ifdef PMIX_SERVER_TMPDIR
-	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR, tmpdir, PMIX_STRING);
+	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR,
+		      pmixp_info_tmpdir_lib(), PMIX_STRING);
 #endif
 #ifdef PMIX_SERVER_SCHEDULER
 	PMIXP_KVP_ADD(kvp, PMIX_SERVER_SCHEDULER,
@@ -280,12 +283,12 @@ int pmixp_lib_finalize(void)
 }
 
 #if (HAVE_PMIX_VER < 4)
-int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
+int pmixp_srun_lib_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	return SLURM_SUCCESS;
 }
 
-int pmixp_lib_srun_finalize(void)
+int pmixp_srun_lib_finalize(void)
 {
 	return SLURM_SUCCESS;
 }
@@ -431,45 +434,42 @@ err_exit:
 	return rc;
 }
 
-extern int pmixp_srun_libpmix_init(void)
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	int rc;
+
+	rc = pmixp_srun_info_set(job, env);
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR("pmixp_srun_info_set() failed");
+		return rc;
+	}
+
 	mode_t rights = (S_IRUSR | S_IWUSR | S_IXUSR) |
 			(S_IRGRP | S_IWGRP | S_IXGRP);
 
-	if (0 != (rc = pmixp_mkdir(pmixp_srun_tmpdir_lib(),
-				   rights, getuid()))) {
+	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_lib(), rights))) {
 		PMIXP_ERROR_STD("Cannot create srun pmix lib tmpdir: \"%s\"",
-				pmixp_srun_tmpdir_lib());
+				pmixp_info_tmpdir_lib());
 		return errno;
 	}
 
-	rc = pmixp_lib_init(getuid(), pmixp_srun_tmpdir_lib());
+	rc = pmixp_lib_init();
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR_STD("PMIx_server_init failed with error %d\n", rc);
 		return SLURM_ERROR;
 	}
 
-	return SLURM_SUCCESS;
-}
-int pmixp_srun_libpmix_finalize(void)
-{
-	int rc, rc1;
-
-	rc = pmixp_lib_finalize();
-
-	rc1 = pmixp_rmdir_recursively(pmixp_srun_tmpdir_lib());
-	if (0 != rc1) {
-		PMIXP_ERROR_STD("Failed to remove %s\n",
-				pmixp_srun_tmpdir_lib());
-		/* Not considering this as fatal error */
+	rc = pmixp_libpmix_setup_application(job, env);
+	if (SLURM_SUCCESS != rc) {
+		PMIXP_ERROR("pmixp_libpmix_setup_application() failed");
+		return rc;
 	}
 
-	return rc;
+	return SLURM_SUCCESS;
 }
 
 int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
-				    char *mapping, char ***env)
+				    char ***env)
 {
 	char nspace[PMIXP_MAX_NSLEN];
 	const uint32_t task_cnt = job->step_layout->task_cnt;
@@ -480,6 +480,7 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	pmix_info_t *info;
 	int ninfo = 0;
 	setup_app_caddy_t *setup_app_caddy = NULL;
+	char *mapping;
 
 	PMIX_INFO_CREATE(info, 2);
 
@@ -502,10 +503,15 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	node_map = NULL;
 
 	/* generate PMIX_PROC_MAP */
+	mapping = pack_process_mapping(job->step_layout->node_cnt,
+				       job->step_layout->task_cnt,
+				       job->step_layout->tasks,
+				       job->step_layout->tids);
 	task_map = unpack_process_mapping_flat(mapping,
 					       job->step_layout->node_cnt,
 					       job->step_layout->task_cnt,
 					       NULL);
+	xfree(mapping);
 	if (task_map == NULL) {
 		rc = SLURM_ERROR;
 		goto err_exit;
@@ -599,55 +605,22 @@ int pmixp_libpmix_local_setup(char ***env)
 	return pmixp_libpmix_setup_local_app(env);
 }
 
-int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
-{
-	int rc;
-	char *mapping;
-	char *tmpdir_prefix = getenv(PMIXP_OS_TMPDIR_ENV);
-
-	pmixp_srun_info_set(job, env);
-
-	if (!tmpdir_prefix) {
-		tmpdir_prefix = PMIXP_TMPDIR_DEFAULT;
-	}
-	xstrfmtcat(_pmixp_srun_info.lib_tmpdir, "%s/srun.slurm.pmix.%d.%d",
-		   tmpdir_prefix, job->step_id.job_id, job->step_id.step_id);
-	if (!_pmixp_srun_info.lib_tmpdir) {
-		PMIXP_ERROR("Cannot create srun pmix tmpdir");
-		return SLURM_ERROR;
-	}
-
-	rc = pmixp_srun_libpmix_init();
-	if (SLURM_SUCCESS != rc) {
-		PMIXP_ERROR("pmixp_libpmix_init() failed");
-		pmixp_lib_srun_finalize();
-		return rc;
-	}
-
-	mapping = getenvp(*env, PMIXP_SLURM_MAPPING_ENV);
-	if (!mapping) {
-		PMIXP_ERROR_NO(ENOENT, "No %s environment variable found!",
-			       PMIXP_SLURM_MAPPING_ENV);
-		return SLURM_ERROR;
-	}
-
-	rc = pmixp_libpmix_setup_application(job, mapping, env);
-	if (SLURM_SUCCESS != rc) {
-		PMIXP_ERROR("pmixp_libpmix_setup_application() failed");
-		return rc;
-	}
-
-	return SLURM_SUCCESS;
-}
-
-int pmixp_lib_srun_finalize()
+int pmixp_srun_libpmix_finalize(void)
 {
 	char *tmpdir;
+	int rc = SLURM_SUCCESS, rc1;
 
-	pmixp_srun_libpmix_finalize();
-	tmpdir = pmixp_srun_tmpdir_lib();
+	rc = pmixp_lib_finalize();
+
+	rc1 = pmixp_rmdir_recursively(pmixp_info_tmpdir_lib());
+	if (0 != rc1) {
+		PMIXP_ERROR_STD("Failed to remove %s\n",
+				pmixp_info_tmpdir_lib());
+		/* Not considering this as fatal error */
+	}
+	tmpdir = pmixp_info_tmpdir_lib();
 	xfree(tmpdir);
 
-	return SLURM_SUCCESS;
+	return rc;
 }
 #endif

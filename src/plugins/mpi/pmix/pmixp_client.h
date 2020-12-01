@@ -86,13 +86,13 @@
 	xfree(kvp);		\
 }
 
-int pmixp_libpmix_init(void);
-int pmixp_libpmix_finalize(void);
+int pmixp_stepd_libpmix_init(void);
+int pmixp_stepd_libpmix_finalize(void);
 int pmixp_libpmix_job_set(void);
 void pmix_libpmix_task_set(int rank, char ***env);
 void pmix_client_new_conn(int fd);
 
-int pmixp_lib_init(uint32_t jobuid, char *tmpdir);
+int pmixp_lib_init(void);
 int pmixp_lib_finalize(void);
 int pmixp_lib_setup_fork(uint32_t rank, const char *nspace, char ***env);
 int pmixp_lib_dmodex_request(pmixp_proc_t *proc, void *dmdx_fn, void *caddy);
@@ -108,8 +108,10 @@ int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 		    bool collect, char *data, size_t ndata,
 		    void *cbfunc, void *cbdata);
 
-int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env);
-int pmixp_lib_srun_finalize(void);
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_libpmix_finalize(void);
 int pmixp_libpmix_local_setup(char ***env);
+int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
+				    char ***env);
 
 #endif /* PMIXP_CLIENT_H */

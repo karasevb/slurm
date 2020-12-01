@@ -412,27 +412,25 @@ static void _set_localinfo(List lresp)
 	list_append(lresp, kvp);
 }
 
-extern int pmixp_libpmix_init(void)
+extern int pmixp_stepd_libpmix_init(void)
 {
 	int rc;
 	mode_t rights = (S_IRUSR | S_IWUSR | S_IXUSR) |
 			(S_IRGRP | S_IWGRP | S_IXGRP);
 
-	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_lib(), rights,
-				   pmixp_info_jobuid()))) {
+	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_lib(), rights))) {
 		PMIXP_ERROR_STD("Cannot create server lib tmpdir: \"%s\"",
 				pmixp_info_tmpdir_lib());
 		return errno;
 	}
 
-	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_cli(), rights,
-				   pmixp_info_jobuid()))) {
+	if (0 != (rc = pmixp_mkdir(pmixp_info_tmpdir_cli(), rights))) {
 		PMIXP_ERROR_STD("Cannot create client cli tmpdir: \"%s\"",
 				pmixp_info_tmpdir_cli());
 		return errno;
 	}
 
-	rc = pmixp_lib_init(pmixp_info_jobuid(), pmixp_info_tmpdir_lib());
+	rc = pmixp_lib_init();
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR_STD("PMIx_server_init failed with error %d\n", rc);
 		return SLURM_ERROR;
@@ -450,7 +448,7 @@ extern int pmixp_libpmix_init(void)
 	return 0;
 }
 
-extern int pmixp_libpmix_finalize(void)
+extern int pmixp_stepd_libpmix_finalize(void)
 {
 	int rc = SLURM_SUCCESS, rc1;
 

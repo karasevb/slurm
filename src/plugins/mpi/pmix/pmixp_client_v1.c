@@ -213,15 +213,17 @@ static pmix_server_module_t slurm_pmix_cb = {
 	NULL
 };
 
-int pmixp_lib_init(uint32_t jobuid, char *tmpdir)
+int pmixp_lib_init(void)
 {
 	pmix_info_t *kvp = NULL;
 	pmix_status_t rc;
+	uint32_t jobuid = pmixp_info_jobuid();
 
 	PMIXP_KVP_ADD(kvp, PMIX_USERID, &jobuid, PMIX_UINT32);
 
 #ifdef PMIX_SERVER_TMPDIR
-	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR, tmpdir, PMIX_STRING);
+	PMIXP_KVP_ADD(kvp, PMIX_SERVER_TMPDIR,
+		      pmixp_info_tmpdir_lib(), PMIX_STRING);
 #endif
 
 	/* setup the server library */
@@ -251,12 +253,12 @@ int pmixp_lib_finalize(void)
 	return rc;
 }
 
-int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
+int pmixp_srun_lib_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	return SLURM_SUCCESS;
 }
 
-int pmixp_lib_srun_finalize(void)
+int pmixp_srun_lib_finalize(void)
 {
 	return SLURM_SUCCESS;
 }
