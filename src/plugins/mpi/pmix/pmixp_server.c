@@ -364,75 +364,29 @@ pmixp_p2p_data_t _direct_proto = {
  */
 
 static volatile int _stepd_was_initialized = 0;
-#if (HAVE_PMIX_VER >= 4)
 static volatile int _srun_was_initialized = 0;
-#endif
 
-#include <pmix_server.h>
-
-#if (HAVE_PMIX_VER >= 4)
 int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	int rc;
-	char *mapping;
-	char *tmpdir_prefix = getenv(PMIXP_OS_TMPDIR_ENV);
 
-	pmixp_srun_info_set(job, env);
-
-	if (!tmpdir_prefix) {
-		tmpdir_prefix = PMIXP_TMPDIR_DEFAULT;
+	if (SLURM_SUCCESS != (rc = pmixp_lib_srun_init(job, env))) {
+		return rc;
 	}
-	xstrfmtcat(_pmixp_srun_info.lib_tmpdir, "%s/srun.slurm.pmix.%d.%d",
-		   tmpdir_prefix, job->jobid, job->stepid);
-	if (!_pmixp_srun_info.lib_tmpdir) {
-		PMIXP_ERROR("Cannot create srun pmix tmpdir");
-		return SLURM_ERROR;
-	}
-
-	rc = pmixp_srun_libpmix_init();
-	if (SLURM_SUCCESS != rc) {
-		PMIXP_ERROR("pmixp_libpmix_init() failed");
-		goto err_lib;
-	}
-
-	mapping = getenvp(*env, PMIXP_SLURM_MAPPING_ENV);
-	if (!mapping) {
-		PMIXP_ERROR_NO(ENOENT, "No %s environment variable found!",
-			       PMIXP_SLURM_MAPPING_ENV);
-		goto err_exit;
-	}
-
-	rc = pmixp_libpmix_setup_application(job, mapping, env);
-	if (SLURM_SUCCESS != rc) {
-		PMIXP_ERROR("pmixp_libpmix_setup_application() failed");
-		goto err_exit;
-	}
-
 	_srun_was_initialized = 1;
 
-	return SLURM_SUCCESS;
-
-err_exit:
-	pmixp_srun_libpmix_finalize();
-err_lib:
 	return rc;
 }
 
 int pmixp_srun_finalize(void)
 {
-	char *tmpdir;
 	if (!_srun_was_initialized) {
 		/* nothing to do */
 		return SLURM_SUCCESS;
 	}
 
-	pmixp_srun_libpmix_finalize();
-	tmpdir = pmixp_srun_tmpdir_lib();
-	xfree(tmpdir);
-
-	return SLURM_SUCCESS;
+	return pmixp_lib_srun_finalize();
 }
-#endif
 
 int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 {
@@ -492,12 +446,10 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 		goto err_lib;
 	}
 
-#if (HAVE_PMIX_VER >= 4)
-	if (SLURM_SUCCESS != (rc = pmixp_libpmix_setup_local_app(env))) {
-		PMIXP_ERROR("pmixp_libpmix_setup_local_app() failed");
+	if (SLURM_SUCCESS != (rc = pmixp_libpmix_local_setup(env))) {
+		PMIXP_ERROR("pmixp_lib_local_setup() failed");
 		goto err_lib;
 	}
-#endif
 
 	if (SLURM_SUCCESS != (rc = pmixp_libpmix_job_set())) {
 		PMIXP_ERROR("pmixp_libpmix_job_set() failed");

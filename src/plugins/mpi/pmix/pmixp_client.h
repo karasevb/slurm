@@ -108,12 +108,8 @@ int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 		    bool collect, char *data, size_t ndata,
 		    void *cbfunc, void *cbdata);
 
-#if (HAVE_PMIX_VER >= 4)
-int pmixp_srun_libpmix_init(void);
-int pmixp_srun_libpmix_finalize(void);
-int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
-				    char *mapping, char ***env);
-int pmixp_libpmix_setup_local_app(char ***env);
-#endif
+int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_lib_srun_finalize(void);
+int pmixp_libpmix_local_setup(char ***env);
 
 #endif /* PMIXP_CLIENT_H */

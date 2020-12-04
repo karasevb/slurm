@@ -53,6 +53,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#include "src/common/slurm_xlator.h"
 #include "src/common/xassert.h"
 #include "src/common/xmalloc.h"
 

@@ -129,10 +129,11 @@ int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env)
 #ifndef NDEBUG
 	_pmixp_srun_info.magic = PMIXP_INFO_MAGIC;
 #endif
-	_pmixp_srun_info.jobid = job->jobid;
-	_pmixp_srun_info.stepid = job->stepid;
+	_pmixp_srun_info.jobid = job->step_id.job_id;
+	_pmixp_srun_info.stepid = job->step_id.job_id;
 
-	pmixp_info_gen_nspace(job->jobid, job->stepid, _pmixp_srun_info.nspace);
+	pmixp_info_gen_nspace(job->step_id.job_id, job->step_id.job_id,
+			      _pmixp_srun_info.nspace);
 
 	_pmixp_srun_info.lib_tmpdir = NULL;
 

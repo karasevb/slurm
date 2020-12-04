@@ -88,11 +88,6 @@ int pmixp_server_send_nb(pmixp_ep_t *ep, pmixp_srv_cmd_t type,
 Buf pmixp_server_buf_new(void);
 size_t pmixp_server_buf_reset(Buf buf);
 
-#if (HAVE_PMIX_VER >= 4)
-int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env);
-int pmixp_srun_finalize(void);
-#endif
-
 #ifndef NDEBUG
 /* Debug tools used only if debug was enabled */
 void pmixp_server_init_pp(char ***env);
@@ -128,5 +123,8 @@ static inline void pmixp_server_buf_reserve(Buf buf, uint32_t size)
 		grow_buf(buf, to_reserve);
 	}
 }
+
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_finalize(void);
 
 #endif /* PMIXP_SERVER_H */
