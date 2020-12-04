@@ -2,7 +2,7 @@
  **  pmix_server.c - PMIx server side functionality
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -363,7 +363,30 @@ pmixp_p2p_data_t _direct_proto = {
  * --------------------- Initi/Finalize -------------------
  */
 
-static volatile int _was_initialized = 0;
+static volatile int _stepd_was_initialized = 0;
+static volatile int _srun_was_initialized = 0;
+
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
+{
+	int rc;
+
+	if (SLURM_SUCCESS != (rc = pmixp_lib_srun_init(job, env))) {
+		return rc;
+	}
+	_srun_was_initialized = 1;
+
+	return rc;
+}
+
+int pmixp_srun_finalize(void)
+{
+	if (!_srun_was_initialized) {
+		/* nothing to do */
+		return SLURM_SUCCESS;
+	}
+
+	return pmixp_lib_srun_finalize();
+}
 
 int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 {
@@ -423,6 +446,11 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 		goto err_lib;
 	}
 
+	if (SLURM_SUCCESS != (rc = pmixp_libpmix_local_setup(env))) {
+		PMIXP_ERROR("pmixp_lib_local_setup() failed");
+		goto err_lib;
+	}
+
 	if (SLURM_SUCCESS != (rc = pmixp_libpmix_job_set())) {
 		PMIXP_ERROR("pmixp_libpmix_job_set() failed");
 		goto err_job;
@@ -432,7 +460,7 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 	pmixp_server_init_cperf(env);
 
 	xfree(path);
-	_was_initialized = 1;
+	_stepd_was_initialized = 1;
 	return SLURM_SUCCESS;
 
 err_job:
@@ -459,7 +487,7 @@ err_info:
 int pmixp_stepd_finalize(void)
 {
 	char *path;
-	if (!_was_initialized) {
+	if (!_stepd_was_initialized) {
 		/* nothing to do */
 		return 0;
 	}
@@ -1283,7 +1311,8 @@ int pmixp_server_direct_conn_early(void)
 
 	PMIXP_DEBUG("called");
 	proc.rank = pmixp_lib_get_wildcard();
-	strncpy(proc.nspace, _pmixp_job_info.nspace, PMIXP_MAX_NSLEN);
+	strncpy(proc.nspace, _pmixp_stepd_info.proc_info.nspace,
+		PMIXP_MAX_NSLEN);
 
 	for (i=0; i < sizeof(types)/sizeof(types[0]); i++){
 		if (type != PMIXP_COLL_TYPE_FENCE_MAX && type != types[i]) {

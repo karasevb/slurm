@@ -2,7 +2,7 @@
  **  pmix_server.h - PMIx server side functionality
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2018 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -123,5 +123,8 @@ static inline void pmixp_server_buf_reserve(Buf buf, uint32_t size)
 		grow_buf(buf, to_reserve);
 	}
 }
+
+int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_finalize(void);
 
 #endif /* PMIXP_SERVER_H */

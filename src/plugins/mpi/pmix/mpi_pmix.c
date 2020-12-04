@@ -2,7 +2,7 @@
  **  mpi_pmix.c - Main plugin callbacks for PMIx support in Slurm
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Y. Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -83,13 +83,13 @@ const char plugin_type[] = "mpi/pmix_v1";
 const char plugin_type[] = "mpi/pmix_v2";
 #elif (HAVE_PMIX_VER == 3)
 const char plugin_type[] = "mpi/pmix_v3";
+#elif (HAVE_PMIX_VER == 4)
+const char plugin_type[] = "mpi/pmix_v4";
 #endif
 
 const uint32_t plugin_version = SLURM_VERSION_NUMBER;
 
 void *libpmix_plug = NULL;
-
-char *process_mapping = NULL;
 
 static void _libpmix_close(void *lib_plug)
 {
@@ -108,6 +108,8 @@ static void *_libpmix_open(void)
 	xstrfmtcat(full_path, "%s/", PMIXP_V2_LIBPATH);
 #elif defined PMIXP_V3_LIBPATH
 	xstrfmtcat(full_path, "%s/", PMIXP_V3_LIBPATH);
+#elif defined PMIXP_V4_LIBPATH
+	xstrfmtcat(full_path, "%s/", PMIXP_V4_LIBPATH);
 #endif
 	xstrfmtcat(full_path, "libpmix.so");
 
@@ -209,6 +211,7 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 	static bool setup_done = false;
 	uint32_t nnodes, ntasks, **tids;
 	uint16_t *task_cnt;
+	char *process_mapping = NULL;
 
 	PMIXP_DEBUG("setup process mapping in srun");
 	if ((job->het_job_id == NO_VAL) || (job->het_job_task_offset == 0)) {
@@ -234,6 +237,12 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 		return NULL;
 	}
 	setenvf(env, PMIXP_SLURM_MAPPING_ENV, "%s", process_mapping);
+	xfree(process_mapping);
+
+	if (SLURM_SUCCESS != pmixp_srun_init(job, env)) {
+		PMIXP_ERROR("pmixp_srun_init() failed");
+		return NULL;
+	}
 
 	/* only return NULL on error */
 	return (void *)0xdeadbeef;
@@ -241,7 +250,5 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 
 extern int p_mpi_hook_client_fini(void)
 {
-	xfree(process_mapping);
-
-	return SLURM_SUCCESS;
+	return pmixp_srun_finalize();
 }

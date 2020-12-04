@@ -2,7 +2,7 @@
  ** pmix_utils.c - Various PMIx utility functions
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -52,6 +52,10 @@
 #include <dirent.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+
+#include "src/common/slurm_xlator.h"
+#include "src/common/xassert.h"
+#include "src/common/xmalloc.h"
 
 #include "pmixp_common.h"
 #include "pmixp_utils.h"
@@ -603,7 +607,7 @@ exit:
 	return rc;
 }
 
-int pmixp_mkdir(char *path, mode_t rights)
+int pmixp_mkdir(char *path, mode_t rights, uid_t uid)
 {
 	/* NOTE: we need user who owns the job to access PMIx usock
 	 * file. According to 'man 7 unix':
@@ -631,9 +635,141 @@ int pmixp_mkdir(char *path, mode_t rights)
 		return errno;
 	}
 
-	if (chown(path, (uid_t) pmixp_info_jobuid(), (gid_t) -1) < 0) {
+	if (chown(path, uid, (gid_t) -1) < 0) {
 		error("%s: chown(%s): %m", __func__, path);
 		return errno;
 	}
 	return 0;
 }
+
+/* _base64_enc_tbl has 64 elements and allows to encode 6 bit of information,
+ * thus to encode integral 8-bit bytes, we need to encode 3 bytes (3*8=24 bits)
+ * that will be represented as 4 elements (4*6=24 bits)  from the table.
+ * This is a minimal chunk of information encoded with base64 (word).
+ * Encoded word occupies 4B in the buffer, decoded word - 3B. */
+
+#define _ENC_WORD 4
+#define _DEC_WORD 3
+
+#define _ENC_LEN(input_length) (_ENC_WORD * (((input_length) + 2)/_DEC_WORD))
+
+#define _DEC_LEN(input_length, padding_legth) \
+     (_DEC_WORD * (input_length)/_ENC_WORD - (padding_legth))
+
+#define _ENC_WORD_NUM(input_length, padding_legth) \
+     ((((input_length) - (padding_legth)) / _ENC_WORD) * _ENC_WORD)
+
+#define _DEC_WORD_NUM(input_length) (((input_length)/_DEC_WORD)*_DEC_WORD)
+
+static char _enc_tbl[] = {
+     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H',
+     'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P',
+     'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X',
+     'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+     'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+     'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+     'w', 'x', 'y', 'z', '0', '1', '2', '3',
+     '4', '5', '6', '7', '8', '9', '+', '/',
+};
+
+static char _dec_tbl[256];
+
+static void _decode_init()
+{
+     int i;
+     for (i = 0; i < 64; i++) {
+          _dec_tbl[(int)(_enc_tbl[i])] = i;
+     }
+}
+
+char *pmixp_base64_encode(char *buf, size_t length, size_t *enc_len)
+{
+     char *enc_str;
+     size_t i, j = 0;
+
+     if (!length) {
+          return NULL;
+     }
+     xassert(buf);
+
+     *enc_len = _ENC_LEN(length);
+     enc_str = (char*)xmalloc(*enc_len + 1);
+     if (!enc_str) {
+          return NULL;
+     }
+
+     enc_str[*enc_len] = '\0';
+
+     for (i = 0; i < _DEC_WORD_NUM(length); i += _DEC_WORD) {
+          enc_str[j++] = _enc_tbl[(buf[i] >> 2) & 0x3f];
+          enc_str[j++] = _enc_tbl[((buf[i] & 0x03) << 4) |
+                    ((buf[i+1] & 0xF0) >> 4)];
+          enc_str[j++] = _enc_tbl[(buf[i+1] & 0x0F) << 2 |
+                    ((buf[i+2] & 0xC0) >> 6)];
+          enc_str[j++] = _enc_tbl[(buf[i+2] & 0x3F)];
+     }
+     if ((length - i) == 1) {
+          enc_str[j++] = _enc_tbl[(buf[i] >> 2) & 0x3f];
+          enc_str[j++] = _enc_tbl[(buf[i] & 0x03) << 4];
+          enc_str[j++] = '=';
+          enc_str[j++] = '=';
+     } else if ((length - i) == 2) {
+          enc_str[j++] = _enc_tbl[(buf[i] >> 2) & 0x3f];
+          enc_str[j++] = _enc_tbl[((buf[i] & 0x03) << 4) |
+                    ((buf[i+1] & 0xF0) >> 4)];
+          enc_str[j++] = _enc_tbl[(buf[i+1] & 0x0F) << 2];
+          enc_str[j++] = '=';
+     }
+     xassert(*enc_len == j);
+
+     return enc_str;
+}
+
+char *pmixp_base64_decode(char *buf, size_t length, size_t *dec_len)
+{
+     char *dec_str;
+     int i, j = 0;
+     size_t pad_len = 0;
+
+     if (!length) {
+          return NULL;
+     }
+     xassert(buf);
+
+     _decode_init();
+
+     if (buf[length-1] == '=') {
+          pad_len++;
+     }
+     if (buf[length-2] == '=') {
+          pad_len++;
+     }
+
+     *dec_len = _DEC_LEN(length, pad_len);
+     dec_str = (char*)xmalloc(*dec_len);
+     if (!dec_str) {
+          return NULL;
+     }
+
+     i = 0;
+     for (i = 0; i < _ENC_WORD_NUM(length, pad_len); i += _ENC_WORD) {
+          dec_str[j++] = (_dec_tbl[(int)buf[i]] << 2) |
+                    (_dec_tbl[(int)buf[i + 1]] >> 4);
+          dec_str[j++] = (_dec_tbl[(int)buf[i+1]] << 4) |
+                    (_dec_tbl[(int)buf[i + 2]] >> 2);
+          dec_str[j++] = (_dec_tbl[(int)buf[i+2]] << 6) |
+                    _dec_tbl[(int)buf[i + 3]];
+     }
+     if (pad_len) {
+          dec_str[j++] = (_dec_tbl[(int)buf[i]] << 2) |
+                    (_dec_tbl[(int)buf[i + 1]] >> 4);
+     }
+     if (pad_len == 1) {
+          dec_str[j++] = (_dec_tbl[(int)buf[i+1]] << 4) |
+                    (_dec_tbl[(int)buf[i + 2]] >> 2);
+     }
+     xassert(*dec_len == j);
+
+     return dec_str;
+}
+
