@@ -469,7 +469,7 @@ int pmixp_srun_libpmix_finalize(void)
 }
 
 int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
-				    char *mapping, char ***env)
+				    char ***env)
 {
 	char nspace[PMIXP_MAX_NSLEN];
 	const uint32_t task_cnt = job->step_layout->task_cnt;
@@ -480,6 +480,7 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	pmix_info_t *info;
 	int ninfo = 0;
 	setup_app_caddy_t *setup_app_caddy = NULL;
+	char *mapping;
 
 	PMIX_INFO_CREATE(info, 2);
 
@@ -502,10 +503,15 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	node_map = NULL;
 
 	/* generate PMIX_PROC_MAP */
+	mapping = pack_process_mapping(job->step_layout->node_cnt,
+				       job->step_layout->task_cnt,
+				       job->step_layout->tasks,
+				       job->step_layout->tids);
 	task_map = unpack_process_mapping_flat(mapping,
 					       job->step_layout->node_cnt,
 					       job->step_layout->task_cnt,
 					       NULL);
+	xfree(mapping);
 	if (task_map == NULL) {
 		rc = SLURM_ERROR;
 		goto err_exit;
@@ -602,7 +608,6 @@ int pmixp_libpmix_local_setup(char ***env)
 int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	int rc;
-	char *mapping;
 	char *tmpdir_prefix = getenv(PMIXP_OS_TMPDIR_ENV);
 
 	pmixp_srun_info_set(job, env);
@@ -625,14 +630,7 @@ int pmixp_lib_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 		return rc;
 	}
 
-	mapping = getenvp(*env, PMIXP_SLURM_MAPPING_ENV);
-	if (!mapping) {
-		PMIXP_ERROR_NO(ENOENT, "No %s environment variable found!",
-			       PMIXP_SLURM_MAPPING_ENV);
-		return SLURM_ERROR;
-	}
-
-	rc = pmixp_libpmix_setup_application(job, mapping, env);
+	rc = pmixp_libpmix_setup_application(job, env);
 	if (SLURM_SUCCESS != rc) {
 		PMIXP_ERROR("pmixp_libpmix_setup_application() failed");
 		return rc;

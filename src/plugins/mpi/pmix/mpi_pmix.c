@@ -91,8 +91,6 @@ const uint32_t plugin_version = SLURM_VERSION_NUMBER;
 
 void *libpmix_plug = NULL;
 
-char *process_mapping = NULL;
-
 static void _libpmix_close(void *lib_plug)
 {
 	xassert(lib_plug);
@@ -213,6 +211,7 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 	static bool setup_done = false;
 	uint32_t nnodes, ntasks, **tids;
 	uint16_t *task_cnt;
+	char *process_mapping = NULL;
 
 	PMIXP_DEBUG("setup process mapping in srun");
 	if ((job->het_job_id == NO_VAL) || (job->het_job_task_offset == 0)) {
@@ -238,6 +237,7 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 		return NULL;
 	}
 	setenvf(env, PMIXP_SLURM_MAPPING_ENV, "%s", process_mapping);
+	xfree(process_mapping);
 
 	if (SLURM_SUCCESS != pmixp_srun_init(job, env)) {
 		PMIXP_ERROR("pmixp_srun_init() failed");
@@ -250,6 +250,5 @@ extern mpi_plugin_client_state_t *p_mpi_hook_client_prelaunch(
 
 extern int p_mpi_hook_client_fini(void)
 {
-	xfree(process_mapping);
 	return pmixp_srun_finalize();
 }
