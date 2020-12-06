@@ -2,7 +2,7 @@
  **  pmix_client.c - PMIx client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -48,6 +48,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <pmix.h>
 #include <pmix_server.h>
 
 #ifdef HAVE_HWLOC
@@ -357,108 +358,25 @@ err_exit:
 	return;
 }
 
-/*
- * Estimate the size of a buffer capable of holding the proc map for this job.
- * PMIx proc map string format:
- *
- *    xx,yy,...,zz;ll,mm,...,nn;...;aa,bb,...,cc;
- *    - n0 ranks -;- n1 ranks -;...;- nX ranks -;
- *
- * To roughly estimate the size of the string we leverage the following
- * dependency: for any rank \in [0; nspace->ntasks - 1]
- *     num_digits_10(rank) <= num_digits_10(nspace->ntasks)
- *
- * So we can say that the cumulative number "digits_cnt" of all symbols
- * comprising all rank numbers in the namespace is:
- *     digits_size <= num_digits_10(nspace->ntasks) * nspace->ntasks
- * Every rank is followed either by a comma, a semicolon, or the terminating
- * '\0', thus each rank requires at most num_digits_10(nspace_ntasks) + 1.
- * So we need at most: (num_digits_10(nspace->ntasks) + 1) * nspace->ntasks.
- *
- * Considering a 1.000.000 core system with 64PPN.
- * The size of the intermediate buffer will be:
- * - num_digits_10(1.000.000) = 7
- * - (7 + 1) * 1.000.000 ~= 8MB
- */
-static size_t _proc_map_buffer_size(uint32_t ntasks)
-{
-	return (pmixp_count_digits_base10(ntasks) + 1) * ntasks;
-}
-
-/* Build a sequence of ranks sorted by nodes */
-static void _build_node2task_map(pmixp_namespace_t *nsptr, uint32_t *node2tasks)
-{
-	uint32_t *node_offs = xcalloc(nsptr->nnodes, sizeof(*node_offs));
-	uint32_t *node_tasks = xcalloc(nsptr->nnodes, sizeof(*node_tasks));
-
-	/* Build the offsets structure needed to fill the node-to-tasks map */
-	for (int i = 1; i < nsptr->nnodes; i++)
-		node_offs[i] = node_offs[i - 1] + nsptr->task_cnts[i - 1];
-
-	xassert(nsptr->ntasks == (node_offs[nsptr->nnodes - 1] +
-				  nsptr->task_cnts[nsptr->nnodes - 1]));
-
-	/* Fill the node-to-task map */
-	for (int i = 0; i < nsptr->ntasks; i++) {
-		int node = nsptr->task_map[i], offset;
-		xassert(node < nsptr->nnodes);
-		offset = node_offs[node] + node_tasks[node]++;
-		xassert(nsptr->task_cnts[node] >= node_tasks[node]);
-		node2tasks[offset] = i;
-	}
-
-	/* Cleanup service structures */
-	xfree(node_offs);
-	xfree(node_tasks);
-}
-
 static int _set_mapsinfo(List lresp)
 {
 	pmix_info_t *kvp;
-	char *regexp, *input, *map = NULL, *pos = NULL;
+	char *regexp;
 	pmixp_namespace_t *nsptr = pmixp_nspaces_local();
-	hostlist_t hl = nsptr->hl;
-	int rc, i, j;
-	int count = hostlist_count(hl);
-	uint32_t *node2tasks = NULL, *cur_task = NULL;
 
-	input = hostlist_deranged_string_malloc(hl);
-	rc = PMIx_generate_regex(input, &regexp);
-	free(input);
-	if (PMIX_SUCCESS != rc) {
+	if (NULL == (regexp = pmixp_info_get_node_map(nsptr->hl))) {
 		return SLURM_ERROR;
 	}
 	PMIXP_KVP_CREATE(kvp, PMIX_NODE_MAP, regexp, PMIX_STRING);
 	regexp = NULL;
 	list_append(lresp, kvp);
 
-	/* Preallocate the buffer to avoid constant xremalloc() calls. */
-	map = xmalloc(_proc_map_buffer_size(nsptr->ntasks));
-
-	/* Build a node-to-tasks map that can be traversed in O(n) steps */
-	node2tasks = xcalloc(nsptr->ntasks, sizeof(*node2tasks));
-	_build_node2task_map(nsptr, node2tasks);
-	cur_task = node2tasks;
-
-	for (i = 0; i < nsptr->nnodes; i++) {
-		char *sep = "";
-		/* For each node, provide IDs of the tasks residing on it */
-		for (j = 0; j < nsptr->task_cnts[i]; j++){
-			xstrfmtcatat(map, &pos, "%s%u", sep, *(cur_task++));
-			sep = ",";
-		}
-		if (i < (count - 1)) {
-			xstrfmtcatat(map, &pos, ";");
-		}
-	}
-	rc = PMIx_generate_ppn(map, &regexp);
-	xfree(map);
-	xfree(node2tasks);
-
-	if (PMIX_SUCCESS != rc) {
+	if (NULL == (regexp = pmixp_info_get_proc_map(nsptr->hl, nsptr->nnodes,
+						      nsptr->ntasks,
+						      nsptr->task_cnts,
+						      nsptr->task_map))) {
 		return SLURM_ERROR;
 	}
-
 	PMIXP_KVP_CREATE(kvp, PMIX_PROC_MAP, regexp, PMIX_STRING);
 	regexp = NULL;
 	list_append(lresp, kvp);
@@ -494,7 +412,7 @@ static void _set_localinfo(List lresp)
 	list_append(lresp, kvp);
 }
 
-extern int pmixp_libpmix_init(void)
+extern int pmixp_stepd_libpmix_init(void)
 {
 	int rc;
 	mode_t rights = (S_IRUSR | S_IWUSR | S_IXUSR) |
@@ -530,7 +448,7 @@ extern int pmixp_libpmix_init(void)
 	return 0;
 }
 
-extern int pmixp_libpmix_finalize(void)
+extern int pmixp_stepd_libpmix_finalize(void)
 {
 	int rc = SLURM_SUCCESS, rc1;
 

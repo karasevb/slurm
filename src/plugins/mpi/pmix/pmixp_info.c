@@ -2,7 +2,7 @@
  **  pmix_info.c - PMIx various environment information
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -40,6 +40,9 @@
 #include "pmixp_debug.h"
 #include "pmixp_info.h"
 #include "pmixp_coll.h"
+#include "pmixp_utils.h"
+
+#include <pmix_server.h>
 
 /* Server communication */
 static char *_srv_usock_path = NULL;
@@ -55,7 +58,7 @@ static bool _srv_use_direct_conn_ucx = false;
 static int _srv_fence_coll_type = PMIXP_COLL_TYPE_FENCE_MAX;
 static bool _srv_fence_coll_barrier = false;
 
-pmix_jobinfo_t _pmixp_job_info;
+pmixp_info_t _pmixp_info;
 
 static int _resources_set(char ***env);
 static int _env_set(char ***env);
@@ -63,7 +66,8 @@ static int _env_set(char ***env);
 /* stepd global UNIX socket contact information */
 void pmixp_info_srv_usock_set(char *path, int fd)
 {
-	_srv_usock_path = _pmixp_job_info.server_addr_unfmt;
+	xassert(_pmixp_info.type == PMIXP_INFO_STEPD);
+	_srv_usock_path = _pmixp_info.stepd.server_addr_unfmt;
 	_srv_usock_fd = fd;
 }
 
@@ -118,57 +122,93 @@ bool pmixp_info_srv_fence_coll_barrier(void)
 	return _srv_fence_coll_barrier;
 }
 
+/* srun PMIx lib information */
+int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env)
+{
+	char *tmpdir_prefix = getenv(PMIXP_OS_TMPDIR_ENV);
+
+	memset(&_pmixp_info, 0, sizeof(_pmixp_info));
+#ifndef NDEBUG
+	_pmixp_info.magic = PMIXP_INFO_MAGIC;
+#endif
+	_pmixp_info.type = PMIXP_INFO_SRUN;
+	_pmixp_info.common.uid = getuid();
+	memcpy(&_pmixp_info.common.step_id, &job->step_id,
+	       sizeof(_pmixp_info.common.step_id));
+	pmixp_info_gen_nspace(job->step_id.job_id, job->step_id.step_id,
+			      _pmixp_info.common.nspace);
+
+	if (!tmpdir_prefix) {
+		tmpdir_prefix = PMIXP_TMPDIR_DEFAULT;
+	}
+	xstrfmtcat(_pmixp_info.common.lib_tmpdir,
+		   "%s/srun.slurm.pmix.%d.%d", tmpdir_prefix,
+		   job->step_id.job_id, job->step_id.step_id);
+	if (!_pmixp_info.common.lib_tmpdir) {
+		PMIXP_ERROR("Cannot create srun pmix tmpdir");
+		return SLURM_ERROR;
+	}
+
+	return SLURM_SUCCESS;
+}
+
+int pmixp_srun_info_free(void)
+{
+	return SLURM_SUCCESS;
+}
+
 /* Job information */
-int pmixp_info_set(const stepd_step_rec_t *job, char ***env)
+int pmixp_stepd_info_set(const stepd_step_rec_t *job, char ***env)
 {
 	int i, rc;
 	size_t msize;
-	memset(&_pmixp_job_info, 0, sizeof(_pmixp_job_info));
+	memset(&_pmixp_info, 0, sizeof(_pmixp_info));
 #ifndef NDEBUG
-	_pmixp_job_info.magic = PMIXP_INFO_MAGIC;
+	_pmixp_info.magic = PMIXP_INFO_MAGIC;
 #endif
+	_pmixp_info.type = PMIXP_INFO_STEPD;
 	/* security info */
-	_pmixp_job_info.uid = job->uid;
-	_pmixp_job_info.gid = job->gid;
+	_pmixp_info.common.uid = job->uid;
+	_pmixp_info.stepd.gid = job->gid;
 
-	memcpy(&_pmixp_job_info.step_id, &job->step_id,
-	       sizeof(_pmixp_job_info.step_id));
+	memcpy(&_pmixp_info.common.step_id, &job->step_id,
+	       sizeof(_pmixp_info.common.step_id));
 
 	if (job->het_job_id && (job->het_job_id != NO_VAL))
-		_pmixp_job_info.step_id.job_id = job->het_job_id;
+		_pmixp_info.common.step_id.job_id = job->het_job_id;
 
 	if (job->het_job_offset != NO_VAL) {
-		_pmixp_job_info.node_id = job->nodeid +
+		_pmixp_info.stepd.node_id = job->nodeid +
 					  job->het_job_node_offset;
-		_pmixp_job_info.node_tasks = job->node_tasks;
-		_pmixp_job_info.ntasks = job->het_job_ntasks;
-		_pmixp_job_info.nnodes = job->het_job_nnodes;
-		msize = _pmixp_job_info.nnodes * sizeof(uint32_t);
-		_pmixp_job_info.task_cnts = xmalloc(msize);
-		for (i = 0; i < _pmixp_job_info.nnodes; i++)
-			_pmixp_job_info.task_cnts[i] =
+		_pmixp_info.stepd.node_tasks = job->node_tasks;
+		_pmixp_info.stepd.ntasks = job->het_job_ntasks;
+		_pmixp_info.stepd.nnodes = job->het_job_nnodes;
+		msize = _pmixp_info.stepd.nnodes * sizeof(uint32_t);
+		_pmixp_info.stepd.task_cnts = xmalloc(msize);
+		for (i = 0; i < _pmixp_info.stepd.nnodes; i++)
+			_pmixp_info.stepd.task_cnts[i] =
 						job->het_job_task_cnts[i];
 
-		msize = _pmixp_job_info.node_tasks * sizeof(uint32_t);
-		_pmixp_job_info.gtids = xmalloc(msize);
+		msize = _pmixp_info.stepd.node_tasks * sizeof(uint32_t);
+		_pmixp_info.stepd.gtids = xmalloc(msize);
 		for (i = 0; i < job->node_tasks; i++) {
-			_pmixp_job_info.gtids[i] = job->task[i]->gtid +
+			_pmixp_info.stepd.gtids[i] = job->task[i]->gtid +
 						   job->het_job_task_offset;
 		}
 	} else {
-		_pmixp_job_info.node_id = job->nodeid;
-		_pmixp_job_info.node_tasks = job->node_tasks;
-		_pmixp_job_info.ntasks = job->ntasks;
-		_pmixp_job_info.nnodes = job->nnodes;
-		msize = _pmixp_job_info.nnodes * sizeof(uint32_t);
-		_pmixp_job_info.task_cnts = xmalloc(msize);
-		for (i = 0; i < _pmixp_job_info.nnodes; i++)
-			_pmixp_job_info.task_cnts[i] = job->task_cnts[i];
+		_pmixp_info.stepd.node_id = job->nodeid;
+		_pmixp_info.stepd.node_tasks = job->node_tasks;
+		_pmixp_info.stepd.ntasks = job->ntasks;
+		_pmixp_info.stepd.nnodes = job->nnodes;
+		msize = _pmixp_info.stepd.nnodes * sizeof(uint32_t);
+		_pmixp_info.stepd.task_cnts = xmalloc(msize);
+		for (i = 0; i < _pmixp_info.stepd.nnodes; i++)
+			_pmixp_info.stepd.task_cnts[i] = job->task_cnts[i];
 
-		msize = _pmixp_job_info.node_tasks * sizeof(uint32_t);
-		_pmixp_job_info.gtids = xmalloc(msize);
+		msize = _pmixp_info.stepd.node_tasks * sizeof(uint32_t);
+		_pmixp_info.stepd.gtids = xmalloc(msize);
 		for (i = 0; i < job->node_tasks; i++)
-			_pmixp_job_info.gtids[i] = job->task[i]->gtid;
+			_pmixp_info.stepd.gtids[i] = job->task[i]->gtid;
 	}
 #if 0
 	if ((job->het_job_id != 0) && (job->het_job_id != NO_VAL))
@@ -193,29 +233,29 @@ int pmixp_info_set(const stepd_step_rec_t *job, char ***env)
 		return rc;
 	}
 
-	snprintf(_pmixp_job_info.nspace, PMIXP_MAX_NSLEN, "slurm.pmix.%d.%d",
-		 pmixp_info_jobid(), pmixp_info_stepid());
+	pmixp_info_gen_nspace(pmixp_info_jobid(), pmixp_info_stepid(),
+			      _pmixp_info.common.nspace);
 
 	return SLURM_SUCCESS;
 }
 
-int pmixp_info_free(void)
+int pmixp_stepd_info_free(void)
 {
-	if (_pmixp_job_info.task_cnts) {
-		xfree(_pmixp_job_info.task_cnts);
+	if (_pmixp_info.stepd.task_cnts) {
+		xfree(_pmixp_info.stepd.task_cnts);
 	}
-	if (_pmixp_job_info.gtids) {
-		xfree(_pmixp_job_info.gtids);
-	}
-
-	if (_pmixp_job_info.task_map_packed) {
-		xfree(_pmixp_job_info.task_map_packed);
+	if (_pmixp_info.stepd.gtids) {
+		xfree(_pmixp_info.stepd.gtids);
 	}
 
-	hostlist_destroy(_pmixp_job_info.job_hl);
-	hostlist_destroy(_pmixp_job_info.step_hl);
-	if (_pmixp_job_info.hostname) {
-		xfree(_pmixp_job_info.hostname);
+	if (_pmixp_info.stepd.task_map_packed) {
+		xfree(_pmixp_info.stepd.task_map_packed);
+	}
+
+	hostlist_destroy(_pmixp_info.stepd.job_hl);
+	hostlist_destroy(_pmixp_info.stepd.step_hl);
+	if (_pmixp_info.stepd.hostname) {
+		xfree(_pmixp_info.stepd.hostname);
 	}
 	return SLURM_SUCCESS;
 }
@@ -292,6 +332,24 @@ eio_handle_t *pmixp_info_io(void)
  }
  */
 
+hostlist_t pmixp_info_step_hl_set(char ***env)
+{
+	char *p = NULL;
+	hostlist_t step_hl = hostlist_create("");
+
+	p = getenvp(*env, PMIXP_STEP_NODES_ENV);
+	if (!p) {
+		PMIXP_ERROR_NO(ENOENT, "Environment variable %s not found",
+			       PMIXP_STEP_NODES_ENV);
+		goto err_exit;
+	}
+	hostlist_push(step_hl, p);
+
+	return step_hl;
+err_exit:
+	return NULL;
+}
+
 static int _resources_set(char ***env)
 {
 	char *p = NULL;
@@ -299,9 +357,9 @@ static int _resources_set(char ***env)
 	/* Initialize all memory pointers that would be allocated to NULL
 	 * So in case of error exit we will know what to xfree
 	 */
-	_pmixp_job_info.job_hl = hostlist_create("");
-	_pmixp_job_info.step_hl = hostlist_create("");
-	_pmixp_job_info.hostname = NULL;
+	_pmixp_info.stepd.job_hl = hostlist_create("");
+	_pmixp_info.stepd.step_hl = hostlist_create("");
+	_pmixp_info.stepd.hostname = NULL;
 
 	/* Save step host list */
 	p = getenvp(*env, PMIXP_STEP_NODES_ENV);
@@ -310,11 +368,11 @@ static int _resources_set(char ***env)
 			       PMIXP_STEP_NODES_ENV);
 		goto err_exit;
 	}
-	hostlist_push(_pmixp_job_info.step_hl, p);
+	hostlist_push(_pmixp_info.stepd.step_hl, p);
 
 	/* Extract our node name */
-	p = hostlist_nth(_pmixp_job_info.step_hl, _pmixp_job_info.node_id);
-	_pmixp_job_info.hostname = xstrdup(p);
+	p = hostlist_nth(_pmixp_info.stepd.step_hl, _pmixp_info.stepd.node_id);
+	_pmixp_info.stepd.hostname = xstrdup(p);
 	free(p);
 
 	/* Determine job-wide node id and job-wide node count */
@@ -330,10 +388,10 @@ static int _resources_set(char ***env)
 			goto err_exit;
 		}
 	}
-	hostlist_push(_pmixp_job_info.job_hl, p);
-	_pmixp_job_info.nnodes_job = hostlist_count(_pmixp_job_info.job_hl);
-	_pmixp_job_info.node_id_job = hostlist_find(_pmixp_job_info.job_hl,
-						    _pmixp_job_info.hostname);
+	hostlist_push(_pmixp_info.stepd.job_hl, p);
+	_pmixp_info.stepd.nnodes_job = hostlist_count(_pmixp_info.stepd.job_hl);
+	_pmixp_info.stepd.node_id_job = hostlist_find(_pmixp_info.stepd.job_hl,
+						    _pmixp_info.stepd.hostname);
 
 	/* FIXME!! ------------------------------------------------------- */
 	/* TODO: _get_task_count not always works well.
@@ -344,8 +402,8 @@ static int _resources_set(char ***env)
 	 }
 	 xassert(_pmixp_job_info.ntasks <= _pmixp_job_info.ntasks_job);
 	 */
-	_pmixp_job_info.ntasks_job = _pmixp_job_info.ntasks;
-	_pmixp_job_info.ncpus_job = _pmixp_job_info.ntasks;
+	_pmixp_info.stepd.ntasks_job = _pmixp_info.stepd.ntasks;
+	_pmixp_info.stepd.ncpus_job = _pmixp_info.stepd.ntasks;
 
 	/* Save task-to-node mapping */
 	p = getenvp(*env, PMIXP_SLURM_MAPPING_ENV);
@@ -356,14 +414,14 @@ static int _resources_set(char ***env)
 		goto err_exit;
 	}
 
-	_pmixp_job_info.task_map_packed = xstrdup(p);
+	_pmixp_info.stepd.task_map_packed = xstrdup(p);
 
 	return SLURM_SUCCESS;
 err_exit:
-	hostlist_destroy(_pmixp_job_info.job_hl);
-	hostlist_destroy(_pmixp_job_info.step_hl);
-	if (_pmixp_job_info.hostname) {
-		xfree(_pmixp_job_info.hostname);
+	hostlist_destroy(_pmixp_info.stepd.job_hl);
+	hostlist_destroy(_pmixp_info.stepd.step_hl);
+	if (_pmixp_info.stepd.hostname) {
+		xfree(_pmixp_info.stepd.hostname);
 	}
 	return SLURM_ERROR;
 }
@@ -372,23 +430,24 @@ static int _env_set(char ***env)
 {
 	char *p = NULL;
 
-	xassert(_pmixp_job_info.hostname);
+	xassert(_pmixp_info.stepd.hostname);
 
-	_pmixp_job_info.server_addr_unfmt =
+	_pmixp_info.stepd.server_addr_unfmt =
 		xstrdup(slurm_conf.slurmd_spooldir);
 
-	_pmixp_job_info.lib_tmpdir = slurm_conf_expand_slurmd_path(
-				_pmixp_job_info.server_addr_unfmt,
-				_pmixp_job_info.hostname);
+	_pmixp_info.common.lib_tmpdir = slurm_conf_expand_slurmd_path(
+				_pmixp_info.stepd.server_addr_unfmt,
+				_pmixp_info.stepd.hostname);
 
-	xstrfmtcat(_pmixp_job_info.server_addr_unfmt,
+	xstrfmtcat(_pmixp_info.stepd.server_addr_unfmt,
 		   "/stepd.slurm.pmix.%d.%d",
 		   pmixp_info_jobid(), pmixp_info_stepid());
 
-	_pmixp_job_info.spool_dir = xstrdup(_pmixp_job_info.lib_tmpdir);
+	_pmixp_info.stepd.spool_dir =
+			xstrdup(_pmixp_info.common.lib_tmpdir);
 
 	/* ----------- Temp directories settings ------------- */
-	xstrfmtcat(_pmixp_job_info.lib_tmpdir, "/pmix.%d.%d/",
+	xstrfmtcat(_pmixp_info.common.lib_tmpdir, "/pmix.%d.%d/",
 		   pmixp_info_jobid(), pmixp_info_stepid());
 
 	/* save client temp directory if requested
@@ -398,28 +457,28 @@ static int _env_set(char ***env)
 	p = getenvp(*env, PMIXP_TMPDIR_CLI);
 
 	if (p){
-		_pmixp_job_info.cli_tmpdir_base = xstrdup(p);
+		_pmixp_info.stepd.cli_tmpdir_base = xstrdup(p);
 	} else {
-		_pmixp_job_info.cli_tmpdir_base = slurm_get_tmp_fs(
-					_pmixp_job_info.hostname);
+		_pmixp_info.stepd.cli_tmpdir_base = slurm_get_tmp_fs(
+					_pmixp_info.stepd.hostname);
 	}
 
-	_pmixp_job_info.cli_tmpdir =
+	_pmixp_info.stepd.cli_tmpdir =
 			xstrdup_printf("%s/spmix_appdir_%u_%d.%d",
-				       _pmixp_job_info.cli_tmpdir_base,
+				       _pmixp_info.stepd.cli_tmpdir_base,
 				       pmixp_info_jobuid(),
 				       pmixp_info_jobid(),
 				       pmixp_info_stepid());
 
 	/* ----------- Timeout setting ------------- */
 	/* TODO: also would be nice to have a cluster-wide setting in Slurm */
-	_pmixp_job_info.timeout = PMIXP_TIMEOUT_DEFAULT;
+	_pmixp_info.stepd.timeout = PMIXP_TIMEOUT_DEFAULT;
 	p = getenvp(*env, PMIXP_TIMEOUT);
 	if (p) {
 		int tmp;
 		tmp = atoi(p);
 		if (tmp > 0) {
-			_pmixp_job_info.timeout = tmp;
+			_pmixp_info.stepd.timeout = tmp;
 		}
 	}
 
@@ -519,4 +578,129 @@ static int _env_set(char ***env)
 #endif
 
 	return SLURM_SUCCESS;
+}
+
+int pmixp_info_gen_nspace(uint32_t jobid, uint32_t stepid, char *nspace)
+{
+	return snprintf(nspace, PMIXP_MAX_NSLEN,
+			"slurm.pmix.%d.%d", jobid, stepid);
+}
+
+/*
+ * Estimate the size of a buffer capable of holding the proc map for this job.
+ * PMIx proc map string format:
+ *
+ *    xx,yy,...,zz;ll,mm,...,nn;...;aa,bb,...,cc;
+ *    - n0 ranks -;- n1 ranks -;...;- nX ranks -;
+ *
+ * To roughly estimate the size of the string we leverage the following
+ * dependency: for any rank \in [0; nspace->ntasks - 1]
+ *     num_digits_10(rank) <= num_digits_10(nspace->ntasks)
+ *
+ * So we can say that the cumulative number "digits_cnt" of all symbols
+ * comprising all rank numbers in the namespace is:
+ *     digits_size <= num_digits_10(nspace->ntasks) * nspace->ntasks
+ * Every rank is followed either by a comma, a semicolon, or the terminating
+ * '\0', thus each rank requires at most num_digits_10(nspace_ntasks) + 1.
+ * So we need at most: (num_digits_10(nspace->ntasks) + 1) * nspace->ntasks.
+ *
+ * Considering a 1.000.000 core system with 64PPN.
+ * The size of the intermediate buffer will be:
+ * - num_digits_10(1.000.000) = 7
+ * - (7 + 1) * 1.000.000 ~= 8MB
+ */
+static size_t _proc_map_buffer_size(uint32_t ntasks)
+{
+	return (pmixp_count_digits_base10(ntasks) + 1) * ntasks;
+}
+
+/* Build a sequence of ranks sorted by nodes */
+static void _build_node2task_map(uint32_t nnodes, uint32_t ntasks,
+				 uint32_t *task_cnts, uint32_t *task_map,
+				 uint32_t *node2tasks)
+{
+	uint32_t *node_offs = xcalloc(nnodes, sizeof(*node_offs));
+	uint32_t *node_tasks = xcalloc(nnodes, sizeof(*node_tasks));
+
+	/* Build the offsets structure needed to fill the node-to-tasks map */
+	for (int i = 1; i < nnodes; i++)
+		node_offs[i] = node_offs[i - 1] + task_cnts[i - 1];
+
+	xassert(ntasks == (node_offs[nnodes - 1] + task_cnts[nnodes - 1]));
+
+	/* Fill the node-to-task map */
+	for (int i = 0; i < ntasks; i++) {
+		int node = task_map[i], offset;
+		xassert(node < nnodes);
+		offset = node_offs[node] + node_tasks[node]++;
+		xassert(task_cnts[node] >= node_tasks[node]);
+		node2tasks[offset] = i;
+	}
+
+	/* Cleanup service structures */
+	xfree(node_offs);
+	xfree(node_tasks);
+}
+
+char *pmixp_info_get_node_map(hostlist_t hl)
+{
+	char *input, *regexp;
+	int rc;
+
+	input = hostlist_deranged_string_malloc(hl);
+	rc = PMIx_generate_regex(input, &regexp);
+	free(input);
+	if (PMIX_SUCCESS != rc) {
+		return NULL;
+	}
+	return regexp;
+}
+
+char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
+			      uint32_t ntasks, uint32_t *task_cnts,
+			      uint32_t *task_map)
+{
+	char *regexp, *map = NULL, *pos = NULL;
+	uint32_t *node2tasks = NULL, *cur_task = NULL;
+	int rc, i, j;
+	int count = hostlist_count(hl);
+
+	/* Preallocate the buffer to avoid constant xremalloc() calls. */
+	map = xmalloc(_proc_map_buffer_size(ntasks));
+
+	/* Build a node-to-tasks map that can be traversed in O(n) steps */
+	node2tasks = xcalloc(ntasks, sizeof(*node2tasks));
+	_build_node2task_map(nnodes, ntasks, task_cnts, task_map, node2tasks);
+	cur_task = node2tasks;
+
+	for (i = 0; i < nnodes; i++) {
+		char *sep = "";
+		/* For each node, provide IDs of the tasks residing on it */
+		for (j = 0; j < task_cnts[i]; j++){
+			xstrfmtcatat(map, &pos, "%s%u", sep, *(cur_task++));
+			sep = ",";
+		}
+		if (i < (count - 1)) {
+			xstrfmtcatat(map, &pos, ";");
+		}
+	}
+	rc = PMIx_generate_ppn(map, &regexp);
+	xfree(map);
+	xfree(node2tasks);
+
+	if (PMIX_SUCCESS != rc) {
+		return NULL;
+	}
+
+	return regexp;
+}
+
+void pmixp_info_set_init(void)
+{
+	_pmixp_info.initialized = 1;
+}
+
+int pmixp_info_is_inited(void)
+{
+	return _pmixp_info.initialized;
 }

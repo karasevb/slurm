@@ -2,7 +2,7 @@
  **  pmix_client.h - PMIx client communication code
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015      Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -86,8 +86,8 @@
 	xfree(kvp);		\
 }
 
-int pmixp_libpmix_init(void);
-int pmixp_libpmix_finalize(void);
+int pmixp_stepd_libpmix_init(void);
+int pmixp_stepd_libpmix_finalize(void);
 int pmixp_libpmix_job_set(void);
 void pmix_libpmix_task_set(int rank, char ***env);
 void pmix_client_new_conn(int fd);
@@ -107,5 +107,11 @@ uint32_t pmixp_lib_get_version(void);
 int pmixp_lib_fence(const pmixp_proc_t procs[], size_t nprocs,
 		    bool collect, char *data, size_t ndata,
 		    void *cbfunc, void *cbdata);
+
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env);
+int pmixp_srun_libpmix_finalize(void);
+int pmixp_libpmix_local_setup(char ***env);
+int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
+				    char ***env);
 
 #endif /* PMIXP_CLIENT_H */

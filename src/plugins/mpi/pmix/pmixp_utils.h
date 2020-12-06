@@ -2,7 +2,7 @@
  ** pmix_utils.h - Various PMIx utility functions
  *****************************************************************************
  *  Copyright (C) 2014-2015 Artem Polyakov. All rights reserved.
- *  Copyright (C) 2015-2017 Mellanox Technologies. All rights reserved.
+ *  Copyright (C) 2015-2020 Mellanox Technologies. All rights reserved.
  *  Written by Artem Polyakov <artpol84@gmail.com, artemp@mellanox.com>.
  *
  *  This file is part of Slurm, a resource management program.
@@ -455,5 +455,8 @@ static inline pmixp_list_elem_t *pmixp_rlist_rem(
 	pmixp_list_enq(l->src_list, elem);
 	return ret;
 }
+
+char *pmixp_base64_encode(char *buf, size_t length, size_t *enc_len);
+char *pmixp_base64_decode(char *buf, size_t length, size_t *dec_len);
 
 #endif /* PMIXP_UTILS_H*/
