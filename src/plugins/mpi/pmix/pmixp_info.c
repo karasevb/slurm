@@ -694,3 +694,13 @@ char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
 
 	return regexp;
 }
+
+void pmixp_info_set_init(void)
+{
+	_pmixp_info.initialized = 1;
+}
+
+int pmixp_info_is_inited(void)
+{
+	return _pmixp_info.initialized;
+}

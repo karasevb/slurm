@@ -362,10 +362,6 @@ pmixp_p2p_data_t _direct_proto = {
 /*
  * --------------------- Initi/Finalize -------------------
  */
-
-static volatile int _stepd_was_initialized = 0;
-static volatile int _srun_was_initialized = 0;
-
 int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	int rc;
@@ -410,14 +406,14 @@ int pmixp_srun_init(const mpi_plugin_client_info_t *job, char ***env)
 	if (SLURM_SUCCESS != (rc = pmixp_srun_libpmix_init(job, env))) {
 		return rc;
 	}
-	_srun_was_initialized = 1;
+	pmixp_info_set_init();
 
 	return rc;
 }
 
 int pmixp_srun_finalize(void)
 {
-	if (!_srun_was_initialized) {
+	if (!pmixp_info_is_inited()) {
 		/* nothing to do */
 		return SLURM_SUCCESS;
 	}
@@ -497,7 +493,7 @@ int pmixp_stepd_init(const stepd_step_rec_t *job, char ***env)
 	pmixp_server_init_cperf(env);
 
 	xfree(path);
-	_stepd_was_initialized = 1;
+	pmixp_info_set_init();
 	return SLURM_SUCCESS;
 
 err_job:
@@ -524,7 +520,7 @@ err_info:
 int pmixp_stepd_finalize(void)
 {
 	char *path;
-	if (!_stepd_was_initialized) {
+	if (!pmixp_info_is_inited()) {
 		/* nothing to do */
 		return 0;
 	}

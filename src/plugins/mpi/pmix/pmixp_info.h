@@ -93,6 +93,7 @@ typedef struct {
 		pmixp_srun_info_t srun;
 		pmixp_stepd_info_t stepd;
 	};
+	volatile int initialized;
 } pmixp_info_t;
 
 extern pmixp_info_t _pmixp_info;
@@ -118,6 +119,8 @@ char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
 int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env);
 int pmixp_srun_info_free(void);
 
+void pmixp_info_set_init(void);
+int pmixp_info_is_inited(void);
 
 static inline int pmixp_info_timeout(void)
 {

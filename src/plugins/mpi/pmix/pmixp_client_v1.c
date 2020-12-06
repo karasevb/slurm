@@ -253,12 +253,12 @@ int pmixp_lib_finalize(void)
 	return rc;
 }
 
-int pmixp_srun_lib_init(const mpi_plugin_client_info_t *job, char ***env)
+int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	return SLURM_SUCCESS;
 }
 
-int pmixp_srun_lib_finalize(void)
+int pmixp_srun_libpmix_finalize(void)
 {
 	return SLURM_SUCCESS;
 }
