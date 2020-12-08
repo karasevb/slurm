@@ -46,8 +46,6 @@
 #define PMIXP_VALUE_LOAD pmix_value_load
 #endif
 
-#define HAVE_PMIX_VER 4
-
 #define PMIXP_KVP_ALLOC(kvp, key_str)				\
 {								\
 	char *key = key_str;					\
