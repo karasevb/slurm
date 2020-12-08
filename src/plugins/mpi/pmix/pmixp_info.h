@@ -129,8 +129,6 @@ static inline int pmixp_info_timeout(void)
 /* My hostname */
 static inline char *pmixp_info_hostname(void)
 {
-	xassert(_pmixp_info.magic == PMIXP_INFO_MAGIC);
-	xassert(_pmixp_info.type == PMIXP_INFO_STEPD);
 	return _pmixp_info.stepd.hostname;
 }
 
@@ -205,7 +203,6 @@ static inline uint32_t pmixp_info_nodeid(void)
 	 * _pmix_job_info.magic == PMIX_INFO_MAGIC
 	 * ! xassert(_pmix_job_info.magic == PMIX_INFO_MAGIC);
 	 */
-	xassert(_pmixp_info.type == PMIXP_INFO_STEPD);
 	return _pmixp_info.stepd.node_id;
 }
 
@@ -216,7 +213,6 @@ static inline uint32_t pmixp_info_nodeid_job(void)
 	 * _pmix_job_info.magic == PMIX_INFO_MAGIC
 	 * ! xassert(_pmix_job_info.magic == PMIX_INFO_MAGIC);
 	 */
-	xassert(_pmixp_info.type == PMIXP_INFO_STEPD);
 	return _pmixp_info.stepd.node_id_job;
 }
 
