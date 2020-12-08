@@ -111,9 +111,6 @@ bool pmixp_info_srv_fence_coll_barrier(void);
 int pmixp_info_gen_nspace(uint32_t jobid, uint32_t stepid, char *nspace);
 hostlist_t pmixp_info_step_hl_set(char ***env);
 char *pmixp_info_get_node_map(hostlist_t hl);
-char *pmixp_info_get_proc_map(hostlist_t hl, uint32_t nnodes,
-			      uint32_t ntasks, uint32_t *task_cnts,
-			      uint32_t *task_map);
 
 /* srun pmix lib information */
 int pmixp_srun_info_set(const mpi_plugin_client_info_t *job, char ***env);

@@ -468,19 +468,89 @@ int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env)
 	return SLURM_SUCCESS;
 }
 
+/*
+ * Estimate the size of a buffer capable of holding the proc map for this job.
+ * PMIx proc map string format:
+ *
+ *    xx,yy,...,zz;ll,mm,...,nn;...;aa,bb,...,cc;
+ *    - n0 ranks -;- n1 ranks -;...;- nX ranks -;
+ *
+ * To roughly estimate the size of the string we leverage the following
+ * dependency: for any rank \in [0; nspace->ntasks - 1]
+ *     num_digits_10(rank) <= num_digits_10(nspace->ntasks)
+ *
+ * So we can say that the cumulative number "digits_cnt" of all symbols
+ * comprising all rank numbers in the namespace is:
+ *     digits_size <= num_digits_10(nspace->ntasks) * nspace->ntasks
+ * Every rank is followed either by a comma, a semicolon, or the terminating
+ * '\0', thus each rank requires at most num_digits_10(nspace_ntasks) + 1.
+ * So we need at most: (num_digits_10(nspace->ntasks) + 1) * nspace->ntasks.
+ *
+ * Considering a 1.000.000 core system with 64PPN.
+ * The size of the intermediate buffer will be:
+ * - num_digits_10(1.000.000) = 7
+ * - (7 + 1) * 1.000.000 ~= 8MB
+ */
+static size_t _proc_map_buffer_size(uint32_t ntasks)
+{
+	return (pmixp_count_digits_base10(ntasks) + 1) * ntasks;
+}
+
+char *pmixp_info_get_node_map(hostlist_t hl)
+{
+	char *input, *regexp;
+	int rc;
+
+	input = hostlist_deranged_string_malloc(hl);
+	rc = PMIx_generate_regex(input, &regexp);
+	free(input);
+	if (PMIX_SUCCESS != rc) {
+		return NULL;
+	}
+	return regexp;
+}
+
+char *pmixp_client_get_proc_map(uint32_t nnodes,
+				uint32_t ntasks, uint16_t *task_cnts,
+				uint32_t **tids)
+{
+	char *regexp, *map = NULL, *pos = NULL;
+	int rc, i, j;
+
+	/* Preallocate the buffer to avoid constant xremalloc() calls. */
+	map = xmalloc(_proc_map_buffer_size(ntasks));
+
+	for (i = 0; i < nnodes; i++) {
+		char *sep = "";
+		/* For each node, provide IDs of the tasks residing on it */
+		for (j = 0; j < task_cnts[i]; j++){
+			xstrfmtcatat(map, &pos, "%s%u", sep, tids[i][j]);
+			sep = ",";
+		}
+		if (i < (nnodes - 1)) {
+			xstrfmtcatat(map, &pos, ";");
+		}
+	}
+	rc = PMIx_generate_ppn(map, &regexp);
+	xfree(map);
+
+	if (PMIX_SUCCESS != rc) {
+		return NULL;
+	}
+
+	return regexp;
+}
+
 int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 				    char ***env)
 {
 	char nspace[PMIXP_MAX_NSLEN];
-	const uint32_t task_cnt = job->step_layout->task_cnt;
 	hostlist_t strp_hl;
 	char *node_map = NULL, *proc_map = NULL;
-	uint32_t *task_map, *task_cnts;
-	int rc, i;
+	int rc;
 	pmix_info_t *info;
 	int ninfo = 0;
 	setup_app_caddy_t *setup_app_caddy = NULL;
-	char *mapping;
 
 	PMIX_INFO_CREATE(info, 2);
 
@@ -502,27 +572,11 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	ninfo++;
 	node_map = NULL;
 
-	/* generate PMIX_PROC_MAP */
-	mapping = pack_process_mapping(job->step_layout->node_cnt,
-				       job->step_layout->task_cnt,
-				       job->step_layout->tasks,
-				       job->step_layout->tids);
-	task_map = unpack_process_mapping_flat(mapping,
-					       job->step_layout->node_cnt,
-					       job->step_layout->task_cnt,
-					       NULL);
-	xfree(mapping);
-	if (task_map == NULL) {
-		rc = SLURM_ERROR;
-		goto err_exit;
-	}
-	task_cnts = xmalloc(sizeof(uint32_t) * task_cnt);
-	for (i = 0; i < task_cnt; i++) {
-		task_cnts[i] = job->step_layout->tasks[i];
-	}
-	proc_map = pmixp_info_get_proc_map(strp_hl, job->step_layout->node_cnt,
-					   task_cnt, task_cnts, task_map);
-	xfree(task_cnts);
+	proc_map = pmixp_client_get_proc_map(job->step_layout->node_cnt,
+					     job->step_layout->task_cnt,
+					     job->step_layout->tasks,
+					     job->step_layout->tids);
+
 	if (NULL == proc_map) {
 		rc = SLURM_ERROR;
 		goto err_exit;
@@ -555,7 +609,8 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 
 	if (setup_app_caddy->base64_setup_str) {
 		int size = strlen(setup_app_caddy->base64_setup_str);
-		char *chunk_value = (char *)xmalloc(slurm_env_get_val_maxlen(NULL));
+		char *chunk_value =
+				(char *)xmalloc(slurm_env_get_val_maxlen(NULL));
 		char *env_name = NULL;
 		int i;
 		int remain = size;
@@ -570,7 +625,9 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 				chunk_size = remain;
 			}
 
-			memcpy(chunk_value, &setup_app_caddy->base64_setup_str[offset], chunk_size);
+			memcpy(chunk_value,
+			       &setup_app_caddy->base64_setup_str[offset],
+			       chunk_size);
 			chunk_value[chunk_size] = '\0';
 			setenvf(env, env_name, "%s", chunk_value);
 			remain -= chunk_size;
@@ -582,9 +639,6 @@ int pmixp_libpmix_setup_application(const mpi_plugin_client_info_t *job,
 	}
 
 err_exit:
-	if (task_map != NULL) {
-		xfree(task_map);
-	}
 	if (node_map != NULL) {
 		free(node_map);
 	}

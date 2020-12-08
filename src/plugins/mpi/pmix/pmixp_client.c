@@ -358,6 +358,68 @@ err_exit:
 	return;
 }
 
+
+/* Build a sequence of ranks sorted by nodes */
+static void _build_node2task_map(uint32_t nnodes, uint32_t ntasks,
+			       uint16_t *task_cnts, uint32_t *task_map,
+			       uint32_t ***tids)
+{
+	uint32_t i;
+	uint32_t *node_offs = xcalloc(nnodes, sizeof(*node_offs));
+	uint32_t *node_tasks = xcalloc(nnodes, sizeof(*node_tasks));
+	uint32_t *node2tasks = xcalloc(nnodes * ntasks, sizeof(*node2tasks));
+
+	/* Build the offsets structure needed to fill the node-to-tasks map */
+	for (int i = 1; i < nnodes; i++)
+		node_offs[i] = node_offs[i - 1] + task_cnts[i - 1];
+
+	xassert(ntasks == (node_offs[nnodes - 1] + task_cnts[nnodes - 1]));
+	/* Allocate with note2tasks */
+	*tids = xmalloc(sizeof(*tids) * nnodes);
+
+	/* Fill the node-to-task map */
+	for (int i = 0; i < ntasks; i++) {
+		int node = task_map[i], offset;
+		xassert(node < nnodes);
+		offset = node_offs[node] + node_tasks[node]++;
+		xassert(task_cnts[node] >= node_tasks[node]);
+		node2tasks[offset] = i;
+	}
+
+
+	for(i=0; i < nnodes; i++) {
+		(*tids)[i] = &node2tasks[node_offs[i]];
+	}
+	/* Cleanup service structures */
+	xfree(node_offs);
+	xfree(node_tasks);
+}
+
+/* Build a sequence of ranks sorted by nodes */
+static void _release_node2task_map(uint32_t **tids)
+{
+	xfree(tids[0]);
+	xfree(tids);
+}
+
+char *pmixp_stepd_get_proc_map(uint32_t nnodes,
+			       uint32_t ntasks, uint16_t *task_cnts,
+			       uint32_t *task_map)
+{
+	char *regexp;
+	uint32_t **tids = NULL;
+	uint32_t *node2tasks;
+
+	/* Build a node-to-tasks map that can be traversed in O(n) steps */
+	node2tasks = xcalloc(ntasks, sizeof(*node2tasks));
+	_build_node2task_map(nnodes, ntasks, task_cnts, task_map, &tids);
+
+	regexp = pmixp_client_get_proc_map(nnodes, ntasks, task_cnts, tids);
+	_release_node2task_map(tids);
+
+	return regexp;
+}
+
 static int _set_mapsinfo(List lresp)
 {
 	pmix_info_t *kvp;
@@ -371,10 +433,11 @@ static int _set_mapsinfo(List lresp)
 	regexp = NULL;
 	list_append(lresp, kvp);
 
-	if (NULL == (regexp = pmixp_info_get_proc_map(nsptr->hl, nsptr->nnodes,
-						      nsptr->ntasks,
-						      nsptr->task_cnts,
-						      nsptr->task_map))) {
+	/* Build a node-to-tasks map that can be traversed in O(n) steps */
+	if (NULL == (regexp = pmixp_stepd_get_proc_map(nsptr->nnodes,
+						       nsptr->ntasks,
+						       nsptr->task_cnts,
+						       nsptr->task_map))) {
 		return SLURM_ERROR;
 	}
 	PMIXP_KVP_CREATE(kvp, PMIX_PROC_MAP, regexp, PMIX_STRING);
