@@ -56,7 +56,7 @@
 #include <pmix.h>
 #include <pmix_server.h>
 
-#if (HAVE_PMIX_VER >= 4)
+#if (HAVE_PMIX_VER >= 3)
 typedef struct {
 	pmix_status_t rc;
 	volatile int active;
@@ -283,7 +283,7 @@ int pmixp_lib_finalize(void)
 	return rc;
 }
 
-#if (HAVE_PMIX_VER < 4)
+#if (HAVE_PMIX_VER < 3)
 int pmixp_srun_libpmix_init(const mpi_plugin_client_info_t *job, char ***env)
 {
 	return SLURM_SUCCESS;
