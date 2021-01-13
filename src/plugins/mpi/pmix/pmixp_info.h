@@ -85,11 +85,8 @@ typedef struct {
 	char *server_addr_unfmt;
 	char *spool_dir;
 	gid_t gid;
-<<<<<<< HEAD
 	char *srun_ip;
 	int abort_agent_port;
-} pmix_jobinfo_t;
-=======
 } pmixp_stepd_info_t;
 
 typedef struct {
@@ -105,7 +102,6 @@ typedef struct {
 	};
 	volatile int initialized;
 } pmixp_info_t;
->>>>>>> mpi/pmix: added support `PMIx_server_setup_application` API
 
 extern pmixp_info_t _pmixp_info;
 
@@ -195,14 +191,14 @@ static inline uint32_t pmixp_info_jobid(void)
 
 static inline char *pmixp_info_srun_ip(void)
 {
-	xassert(_pmixp_job_info.magic == PMIXP_INFO_MAGIC);
-	return _pmixp_job_info.srun_ip;
+	xassert(_pmixp_info.magic == PMIXP_INFO_MAGIC);
+	return _pmixp_info.stepd.srun_ip;
 }
 
 static inline int pmixp_info_abort_agent_port(void)
 {
-	xassert(_pmixp_job_info.magic == PMIXP_INFO_MAGIC);
-	return _pmixp_job_info.abort_agent_port;
+	xassert(_pmixp_info.magic == PMIXP_INFO_MAGIC);
+	return _pmixp_info.stepd.abort_agent_port;
 }
 
 static inline uint32_t pmixp_info_stepid(void)

@@ -81,14 +81,10 @@
 #define PMIXP_CPUS_PER_NODE_ENV "SLURM_JOB_CPUS_PER_NODE"
 #define PMIXP_CPUS_PER_TASK "SLURM_CPUS_PER_TASK"
 #define PMIXP_SLURM_MAPPING_ENV "SLURM_PMIX_MAPPING_SERV"
-<<<<<<< HEAD
 #define PMIXP_SLURM_ABORT_AGENT_IP "SLURM_SRUN_COMM_HOST"
 #define PMIXP_SLURM_ABORT_AGENT_PORT "SLURM_PMIXP_ABORT_AGENT_PORT"
-=======
 #define PMIXP_SERVER_SETUP_APP "SLURM_PMIX_SERVER_SETUP_APP"
 #define PMIXP_SERVER_SETUP_APP_FMT "SLURM_PMIX_SERVER_SETUP_APP_%u"
-
->>>>>>> mpi/pmix: added support `PMIx_server_setup_application` API
 
 /* ----------------------------------------------------------
  * This variables can be used to adjust the plugin's behavior

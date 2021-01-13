@@ -252,24 +252,14 @@ int pmixp_stepd_info_free(void)
 	if (_pmixp_info.stepd.gtids) {
 		xfree(_pmixp_info.stepd.gtids);
 	}
-
 	if (_pmixp_info.stepd.task_map_packed) {
 		xfree(_pmixp_info.stepd.task_map_packed);
 	}
-
-<<<<<<< HEAD
-	xfree(_pmixp_job_info.srun_ip);
-
-	hostlist_destroy(_pmixp_job_info.job_hl);
-	hostlist_destroy(_pmixp_job_info.step_hl);
-	if (_pmixp_job_info.hostname) {
-		xfree(_pmixp_job_info.hostname);
-=======
+	xfree(_pmixp_info.stepd.srun_ip);
 	hostlist_destroy(_pmixp_info.stepd.job_hl);
 	hostlist_destroy(_pmixp_info.stepd.step_hl);
 	if (_pmixp_info.stepd.hostname) {
 		xfree(_pmixp_info.stepd.hostname);
->>>>>>> mpi/pmix: added support `PMIx_server_setup_application` API
 	}
 	return SLURM_SUCCESS;
 }
@@ -371,14 +361,14 @@ static int _resources_set(char ***env)
 	/* Initialize abort thread info */
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_IP);
 
-	xfree(_pmixp_job_info.srun_ip);
-	_pmixp_job_info.srun_ip = xstrdup(p);
+	xfree(_pmixp_info.stepd.srun_ip);
+	_pmixp_info.stepd.srun_ip = xstrdup(p);
 
 	p = getenvp(*env, PMIXP_SLURM_ABORT_AGENT_PORT);
 	if (p)
-		_pmixp_job_info.abort_agent_port = slurm_atoul(p);
+		_pmixp_info.stepd.abort_agent_port = slurm_atoul(p);
 	else
-		_pmixp_job_info.abort_agent_port = -1;
+		_pmixp_info.stepd.abort_agent_port = -1;
 
 	/* Initialize all memory pointers that would be allocated to NULL
 	 * So in case of error exit we will know what to xfree
@@ -450,7 +440,7 @@ err_exit:
 		xfree(_pmixp_info.stepd.hostname);
 	}
 
-	xfree(_pmixp_job_info.srun_ip);
+	xfree(_pmixp_info.stepd.srun_ip);
 	return SLURM_ERROR;
 }
 
